@@ -1,0 +1,14 @@
+# 临时/本地文件
+*.tmp
+*.log
+tests/shot*.png
+tests/dom*.html
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 依赖
+node_modules/

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="Ekv5dFY9o6s4UytxRZKRYf">
+<head data-page-node-id="VakD0ygh10K0yF9U20jDV3">
+<meta charset="UTF-8" data-page-node-id="2AKHwnR8Po5wY9MTVgX3p1">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="g6J6YHCBmwP22BIaDM02WE">
+<title>德州扑克 AI 对战 · 教学复盘</title>
+<link rel="stylesheet" href="css/style.css" data-page-node-id="Qng2ec79wV9W0CqTOsmkqG">
+</head>
+<body data-page-node-id="1wGw1ZPL4I6fkrhmBt2zzK">
+
+<header class="topbar" data-page-node-id="yJCQDlKScivPHgKFplYlQq">
+  <div class="brand" data-page-node-id="sudxZCb3DPzBtPdKXmAZNZ">德州扑克 AI 对战<span class="sub" data-page-node-id="trKAEpDFz9wCkEMKqyG3Wc">教学 · 复盘</span></div>
+  <div class="hand-info" data-page-node-id="BR4bh8UA305RUAs07ZILK3">第 <b id="handNo" data-page-node-id="Uox4NkeXnmookYF6ACZcOH">0</b> 手　盲注 <b id="blinds" data-page-node-id="mlhzceMH8vMfIZZdXqKlJx">10 / 20</b>　你的筹码 <b id="myChips" data-page-node-id="C8CmvK6kGKQCAt9UthhWcz">2000</b></div>
+  <div class="top-actions" data-page-node-id="RoscmftCEZMgbkT6KK70Re">
+    <label class="switch" data-page-node-id="cpXbnVO4k9guXpLsTxxuhC"><input type="checkbox" id="chkCoach" checked data-page-node-id="vrZDFStGuK4G3u7BrsApCn"> 教学提示</label>
+    <button class="btn ghost" id="btnSetup" data-page-node-id="rfFAr63SQUJtPlZaAVflwD">选桌</button>
+    <button class="btn ghost" id="btnReview" data-page-node-id="rYOhYrt8nRrDkDTdLlH73u">复盘</button>
+    <button class="btn ghost" id="btnClass" data-page-node-id="7BUaSpCGgqmhoWWmoi87tH">课堂</button>
+    <button class="btn ghost" id="btnStats" data-page-node-id="pC3VIaY8AQrFB3YUHFeE9O">统计</button>
+  </div>
+</header>
+
+<main class="table-area" data-page-node-id="eBSjuzmdo2o9zST1xDTlTU">
+  <div class="felt" data-page-node-id="wildHW8qq58z55BcMm7W2O">
+    <div class="seat-row top" id="rowTop" data-page-node-id="oBtyDDTyce7ncGTaQFgBWy"></div>
+
+    <div class="center" data-page-node-id="YEIykc2J3yHl7RNgSdtDmS">
+      <div class="board" id="board" data-page-node-id="C1dxp76XfekQKJS0FLO4O4"></div>
+      <div class="pot-line" data-page-node-id="v0Sn6zstorwva3Uz8njMrk">底池 <b id="pot" data-page-node-id="Xlrf2u5kW3f3ZEc91ddsMF">0</b></div>
+      <div class="street-line" id="streetLabel" data-page-node-id="Cd81KNrzHVeBT608YgfBzM"></div>
+    </div>
+
+    <div class="my-hand" id="myHand" data-page-node-id="mh1">
+      <div class="mh-cards" id="myCards" data-page-node-id="aj9G4LePNIqLSr0D2UrK2F"></div>
+      <div class="mh-bar" data-page-node-id="mh2">
+        <span class="avatar" data-page-node-id="mh3">🙂</span>
+        <b class="mh-name" data-page-node-id="mh4">你</b>
+        <span class="mh-chips" id="myChipsT" data-page-node-id="mh5">¥2000</span>
+        <span class="mh-state" id="myState" data-page-node-id="mh6"></span>
+      </div>
+      <div class="coach-tip" id="coachTip" data-page-node-id="8guyBUsU6hWK73lWZSAhEc"></div>
+      <div class="controls" id="controls" data-page-node-id="QmH2H52vajP8uyCIE9DF0m">
+        <button class="btn fold" id="btnFold" data-page-node-id="VCbT3auT681E9I83OLQMR6">弃牌</button>
+        <button class="btn check" id="btnCheck" data-page-node-id="WyWT6josQ0d382EdlQ1H2R">过牌</button>
+        <button class="btn call" id="btnCall" data-page-node-id="1AnuQBfzBd5EhDXJyRVP2F">跟注</button>
+        <div class="raise-box" data-page-node-id="wHFPG6xtE8Ae6iPlWc3FhK">
+          <div class="preset-raise" data-page-node-id="pR1">
+            <button class="btn ghost small" id="btnHalfPot" data-page-node-id="pRH">½池</button>
+            <button class="btn ghost small" id="btnTwoThirdPot" data-page-node-id="pRT">⅔池</button>
+            <button class="btn ghost small" id="btnFullPot" data-page-node-id="pRF">底池</button>
+          </div>
+          <input type="range" id="raiseRange" min="0" max="100" value="0" data-page-node-id="E1bWnvbSBjeABGvpGwfXZN">
+          <span class="raise-val" id="raiseVal" data-page-node-id="Q5BsWKChBsDxSjhGEIARKe">0</span>
+          <button class="btn raise" id="btnRaise" data-page-node-id="HokDdKX7As7CbA7tn5hCC7">加注</button>
+        </div>
+        <button class="btn allin" id="btnAllIn" data-page-node-id="cLOVtYZqbPK2VpurgqJ0uA">全下</button>
+        <button class="btn primary hidden" id="btnNext" data-page-node-id="7OGVwQgNDA19E8MCBSg5KF">下一手</button>
+      </div>
+    </div>
+
+    <div class="seat-row bottom" id="rowBottom" data-page-node-id="NZcjOtEsZgsFQcvezItahQ"></div>
+  </div>
+
+  <aside class="log-panel" data-page-node-id="cADp7i9CA2yadgQGHaxEmp">
+    <div class="log-head" data-page-node-id="LRNrK2s1b0LGrzVTBZncuh">牌局记录</div>
+    <div class="log" id="log" data-page-node-id="FyVMDY400ZIC6jgKBeFoyT"></div>
+  </aside>
+</main>
+
+<!-- 选桌 -->
+<div class="modal hidden" id="modalSetup" data-page-node-id="vUT0zzd2W1CxD3rPxV0Df9">
+  <div class="modal-box wide" data-page-node-id="avJ0qnWIf662mSWQtR5vpi">
+    <div class="modal-head" data-page-node-id="yBm0DDSMZ0wFIDjUNSgnyi"><h2 data-page-node-id="K6yw4dpEbdkBIjwF32mo3M">选择对手</h2><button class="close" data-close="modalSetup" data-page-node-id="kFxyHpa34ArW2igwnT6FYw">×</button></div>
+    <p class="modal-sub" data-page-node-id="GjtnNXX7cMoMYjLAurFF9k">选 5 位对手同桌（越高难度越难对付，打法也越刁钻）。</p>
+    <div class="pers-grid" id="persGrid" data-page-node-id="fAdHtBTKCZBelXqPCNOiiW"></div>
+    <div class="modal-foot" data-page-node-id="z5TmoO5dCTwkFnFGnbXv8e">
+      <span id="setupHint" data-page-node-id="qtNpes8thN3NkF87HcXoCl">已选 0 / 5</span>
+      <button class="btn primary" id="btnStartTable" data-page-node-id="5KcKR6NAJwu3fJerFBALYX">开始牌局</button>
+    </div>
+  </div>
+</div>
+
+<!-- 复盘 -->
+<div class="modal hidden" id="modalReview" data-page-node-id="1bU0a9ETQUz5qFESXmLdRW">
+  <div class="modal-box wide" data-page-node-id="CrXEgWvHqa3oPJocbJiBAU">
+    <div class="modal-head" data-page-node-id="QNjAEXDnUBGY07nNSoOE2h">
+      <h2 data-page-node-id="gLEd9iqfx9JeqH6xI5w3dH">本手复盘</h2>
+      <div class="review-nav" data-page-node-id="Y9zkrHzWL8JF0HHNY5HUE9">
+        <button class="btn ghost small" id="rvPrev" data-page-node-id="7zkH0mx4WWXBcf1eZkNcz7">上一手</button>
+        <span id="rvIndex" data-page-node-id="5gfvjF7LqLRuJxrhGUXpeh"></span>
+        <button class="btn ghost small" id="rvNext" data-page-node-id="WD6i192K3ZDeDqG52BQHLH">下一手</button>
+        <button class="close" data-close="modalReview" data-page-node-id="kJtvwYN07vCHe6marDEuFI">×</button>
+      </div>
+    </div>
+    <div class="review-body" id="reviewBody" data-page-node-id="5Gw5eAUHJRiVgNr4oDl53L"></div>
+  </div>
+</div>
+
+<!-- 课堂 -->
+<div class="modal hidden" id="modalClass" data-page-node-id="Gue8Ib0c7O6JTFUfnd86NV">
+  <div class="modal-box" data-page-node-id="jpGhs61HniBCBlbartczXX">
+    <div class="modal-head" data-page-node-id="gwUpvuN0UBeeyKPrGPVUpG"><h2 data-page-node-id="TYAPo729t5vwKunuuDclMR">扑克课堂</h2><button class="close" data-close="modalClass" data-page-node-id="bkWx2aljyR2q78cBbEa56V">×</button></div>
+    <div class="tips-list" id="tipsList" data-page-node-id="8EhBEcwjFKJrkfclyZeIsE"></div>
+  </div>
+</div>
+
+<!-- 统计 -->
+<div class="modal hidden" id="modalStats" data-page-node-id="fjaFHQFiilzZ6oK6w5ctLX">
+  <div class="modal-box" data-page-node-id="MUC0MTRBElrA2voatGP7I7">
+    <div class="modal-head" data-page-node-id="4rQIlZP3h0VObpPPsgLOnn"><h2 data-page-node-id="BkhSfp4KwYZyxTgHtqBbXB">学习档案</h2><button class="close" data-close="modalStats" data-page-node-id="8eFJIPtdG1F3ZBZSrCoa7a">×</button></div>
+    <div class="stats-body" id="statsBody" data-page-node-id="fm4X6Vvz3qYrjGP1vzw30O"></div>
+    <div class="modal-foot" data-page-node-id="xhyX2yn9CBjnDGzSHmsmMd"><button class="btn ghost" id="btnClearStats" data-page-node-id="mv4TJlGCV0YSoNVXoSKd9l">清空档案</button></div>
+  </div>
+</div>
+
+<script src="js/cards.js"></script>
+<script src="js/handEval.js"></script>
+<script src="js/equity.js"></script>
+<script src="js/ai/personalities.js"></script>
+<script src="js/ai/brain.js"></script>
+<script src="js/game.js"></script>
+<script src="js/coach.js"></script>
+<script src="js/review.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
