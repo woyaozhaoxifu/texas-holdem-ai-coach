@@ -46,6 +46,15 @@
 5. **实时教学提示**：轮到你在行动前，提示条会显示当前建议（可右上角关闭）。
 6. **学习档案**：累计决策准确率、失误分布、常犯错误 Top3（存浏览器本地）。
 
+## 界面一览
+
+<table>
+  <tr>
+    <td width="50%"><b>选桌</b>：6 个对手任选 5 位同桌<br><img src="screenshots/setup.png" alt="选桌界面"></td>
+    <td width="50%"><b>每手自动复盘</b>：逐街回放 + 决策点评<br><img src="screenshots/review.png" alt="复盘界面"></td>
+  </tr>
+</table>
+
 ## 技术说明
 
 - 零依赖、零构建：原生 HTML + CSS + JavaScript，无任何外部库。
@@ -56,6 +65,12 @@
   - `js/ui.js` `js/main.js` 界面
 - 规则完整：盲注、四街下注、**边池**、全下、平局分池、弃牌获胜。
 - 全部 AI 引擎可在 Node 下独立跑自动化测试：`node tests/sim.js`。
+
+## 自己造对手 / 参与开发
+
+所有 AI 的性格都是 `js/ai/personalities.js` 里的一张纯数据表——改几个数字就能造出全新对手（偷盲频率、诈唬率、上头倾向、位置意识都能调）。
+
+详见 **[CONTRIBUTING.md](CONTRIBUTING.md)**：本地运行、字段含义速查表、代码约定（零依赖零构建）、跑测试的方法。
 
 ## 许可
 
