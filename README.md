@@ -1,5 +1,7 @@
 # 德州扑克 AI 对战 · 教学复盘版
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow) ![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen) ![Build](https://img.shields.io/badge/build-none-blue) ![Play](https://img.shields.io/badge/%E2%96%B6-play%20online-ff69b4) ![topics](https://img.shields.io/badge/topics-texas--holdem%20%7C%20poker%20%7C%20poker--ai%20%7C%20javascript%20%7C%20html5-blueviolet)
+
 ![对局预览](screenshots/preview.png)
 
 人机对战的德州扑克（No-Limit Hold'em）游戏。**6 个性格迥异的 AI 对手**：难度不同、打法不同、会偷鸡、会上头、会记仇。
