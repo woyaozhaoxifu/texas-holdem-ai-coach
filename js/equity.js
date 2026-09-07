@@ -170,6 +170,86 @@
   }
 
   /**
+   * 全下段权益（已知各家底牌的公共牌发完模拟）。
+   * AIV / 复盘运气归因用：摊牌时各家底牌已知 → 不需要再把对手当作随机牌采样，
+   * 只需把剩余公共牌发完，各家按最终成牌比大小、平分计权益。
+   * 河牌（board 5 张）时公共牌已齐 → 精确返回 0/1/平局分拆（无随机）。
+   * @param {Array<Array<{r:number,s:number}>>} holes 每家两张底牌（顺序即返回值顺序）
+   * @param {Array<{r:number,s:number}>} board 全下时点的公共牌（0/3/4/5 张）
+   * @param {number=} iterations 蒙特卡洛次数（河牌忽略），默认 400
+   * @param {Function=} rng 随机源（可注入种子）
+   * @return {Array<number>} 各家权益（和 ≈1）
+   */
+  function allinEquity(holes, board, iterations, rng) {
+    var HEv = Poker.HandEval || HE;
+    var n = holes ? holes.length : 0;
+    if (n === 0) return [];
+    if (n === 1) return [1];
+    var used = new Uint8Array(52);
+    var hIdx = [];
+    var p, i, k;
+    for (p = 0; p < n; p++) {
+      var hp = [HEv.idxOf(holes[p][0]), HEv.idxOf(holes[p][1])];
+      hIdx.push(hp);
+      used[hp[0]] = 1;
+      used[hp[1]] = 1;
+    }
+    var bIdx = [];
+    for (i = 0; i < (board ? board.length : 0); i++) {
+      var bi = HEv.idxOf(board[i]);
+      bIdx.push(bi);
+      used[bi] = 1;
+    }
+    var eq = [];
+    for (p = 0; p < n; p++) eq.push(0);
+    var full = new Array(5);
+    var seven = new Array(7);
+    var vals = new Array(n);
+    function runEval() {
+      var best = -1;
+      for (p = 0; p < n; p++) {
+        for (k = 0; k < 5; k++) seven[k] = full[k];
+        seven[5] = hIdx[p][0];
+        seven[6] = hIdx[p][1];
+        var v = HEv.valueIdx(seven, 7);
+        vals[p] = v;
+        if (v > best) best = v;
+      }
+      var nw = 0;
+      for (p = 0; p < n; p++) if (vals[p] === best) nw++;
+      var share = 1 / nw;
+      for (p = 0; p < n; p++) if (vals[p] === best) eq[p] += share;
+    }
+    if (bIdx.length === 5) {
+      for (i = 0; i < 5; i++) full[i] = bIdx[i];
+      runEval();
+      // 河牌精确：只可能是 1 / 0 / 1/nw（平局分拆），消除浮点尾巴便于断言
+      for (p = 0; p < n; p++) eq[p] = Math.round(eq[p] * 1e9) / 1e9;
+      return eq;
+    }
+    var need = 5 - bIdx.length;
+    var deck = [];
+    for (i = 0; i < 52; i++) if (!used[i]) deck.push(i);
+    var rand = rng || Math.random;
+    var iters = Math.max(1, iterations || 400);
+    for (i = 0; i < bIdx.length; i++) full[i] = bIdx[i];
+    var it, j;
+    for (it = 0; it < iters; it++) {
+      // 部分 Fisher-Yates：只洗需要补的公共牌张数
+      for (i = 0; i < need; i++) {
+        j = i + Math.floor(rand() * (deck.length - i));
+        var t = deck[i];
+        deck[i] = deck[j];
+        deck[j] = t;
+      }
+      for (i = 0; i < need; i++) full[bIdx.length + i] = deck[i];
+      runEval();
+    }
+    for (p = 0; p < n; p++) eq[p] = eq[p] / iters;
+    return eq;
+  }
+
+  /**
    * 蒙特卡洛胜率（{r,s} 牌对象版）。
    * @param {Array<{r:number,s:number}>} hole
    * @param {Array<{r:number,s:number}>} board
@@ -498,6 +578,7 @@
     preflopEquity: preflopEquity,
     winRate: winRate,
     winRateIdx: winRateIdx,
+    allinEquity: allinEquity,
     handStrength: handStrength,
     detectDraw: detectDraw,
     outsToEquity: outsToEquity,

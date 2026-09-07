@@ -178,6 +178,7 @@
       decisions: decisions,
       opponents: opponents,
       tips: tips,
+      aiv: result.aiv || null,   // C1：本手全下 EV 段（game.js 在 settle 时挂到 result）
       summary: summary
     };
   }

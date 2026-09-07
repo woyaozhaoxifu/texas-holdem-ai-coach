@@ -736,3 +736,20 @@ body {
   .odds-body { padding: 0 14px 10px; }
   .odds-head { padding: 8px 14px 6px; }
 }
+
+/* C1 复盘：运气 / AIV（全下 EV） */
+.aiv-session { font-size: 13.5px; color: var(--text-2); line-height: 1.7; padding: 2px 2px 6px; }
+.aiv-session b { color: var(--text); }
+.aiv-session b.aiv-bad { color: #ff8a97; }
+.aiv-session b.aiv-good { color: #5fd6bd; }
+.aiv-row {
+  display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline;
+  font-size: 12.5px; color: var(--muted);
+  padding: 3px 2px; border-top: 1px dashed rgba(255,255,255,.05);
+}
+.aiv-row .aiv-hand { color: var(--text-2); }
+.aiv-row .aiv-nm { color: var(--text); font-weight: 700; }
+.aiv-row b.aiv-bad { color: #ff8a97; }
+.aiv-row b.aiv-good { color: #5fd6bd; }
+.aiv-row .rs { color: var(--muted); font-size: 12px; }
+

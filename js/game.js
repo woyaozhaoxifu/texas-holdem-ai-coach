@@ -59,7 +59,12 @@
         lastReason: '',
         _trap: false,      // B3 慢打陷阱线：本手内是否已跟注慢打，等下一街收网
         _trapDone: false,  // B3 每座位每手至多慢打一次
-        stats: { hands: 0, vpip: 0, pfr: 0, folds: 0, calls: 0, raises: 0, showdowns: 0, wins: 0, facedBet: 0, foldsToBet: 0, threeBet: 0, steal: 0, cBetFaced: 0, foldToCBet: 0 }
+        _allinStreet: '',  // C1 AIV：本手该座全下时所在的街（''=尚未全下）
+        stats: { hands: 0, vpip: 0, pfr: 0, folds: 0, calls: 0, raises: 0, showdowns: 0, wins: 0, facedBet: 0, foldsToBet: 0, threeBet: 0, steal: 0, cBetFaced: 0, foldToCBet: 0 },
+        // C1 AIV 累计（座位级，不进 seat.stats——stats 是「每手一次」整数计数口径，
+        // AIV 是带符号浮点期望/运气，放 seat 顶层避免破坏该口径的断言）
+        cumAiv: 0,
+        cumLuck: 0
       });
     }
 
@@ -80,6 +85,8 @@
     this.lastResult = null;
     this.history = [];
     this.events = [];
+    // C1 AIV：全下 EV 段事件（整 session 累积；换桌 new Game 清零）
+    this.aivEvents = [];
     // 人类玩家模型（供 Boss 读牌 + HUD）
     this.playerModel = { hands: 0, vpip: 0, foldToBet: 0, aggression: 0 };
 
@@ -218,6 +225,7 @@
       s.lastReason = '';
       s._trap = false;
       s._trapDone = false;
+      s._allinStreet = '';
       // 关系随时间淡忘
       for (var rid in s.relations) {
         if (!Object.prototype.hasOwnProperty.call(s.relations, rid)) continue;
@@ -311,7 +319,7 @@
     seat.chips -= cost;
     seat.bet += cost;
     seat.committed += cost;
-    if (seat.chips <= 0) seat.allIn = true;
+    if (seat.chips <= 0 && !seat.allIn) { seat.allIn = true; seat._allinStreet = 'preflop'; }
     this.emit('post', { seat: seat.index, amount: cost, kind: kind });
   };
 
@@ -320,7 +328,7 @@
     var cost = Math.min(amount, seat.chips);
     seat.chips -= cost;
     seat.committed += cost;
-    if (seat.chips <= 0) seat.allIn = true;
+    if (seat.chips <= 0 && !seat.allIn) { seat.allIn = true; seat._allinStreet = 'preflop'; }
     this.emit('post', { seat: seat.index, amount: cost, kind: 'ante' });
   };
 
@@ -437,6 +445,9 @@
         this.requeue(seatIndex);
       }
     }
+
+    // 若本行动把玩家推成全下，记录全下街（C1 AIV 计算锁定街用；盲注/ante 已在 post 阶段记 preflop）
+    if (s.allIn && !s._allinStreet) s._allinStreet = this.street;
 
     s.lastReason = reason || '';
 
@@ -566,6 +577,113 @@
     return pots;
   };
 
+  /** 街名 -> 该街时点已发的公共牌张数（preflop=0/flop=3/turn=4/river=5） */
+  Game.prototype.boardLenAtStreet = function (street) {
+    if (street === 'flop') return 3;
+    if (street === 'turn') return 4;
+    if (street === 'river') return 5;
+    return 0;
+  };
+
+  /**
+   * C1 AIV（All-in EV）：摊牌结算时把「≥2 名玩家筹码全入的同一底池/边池」拆成零和 AIV 段。
+   * 每段 ev_i = equity_i × pot − contributed_i（已弃牌者 equity=0），Σev=0；
+   * actual_i = 赢下该段份额 − contributed_i；luck_i = actual_i − ev_i。
+   * 权益：河牌全下 = 精确（1/0/平局分拆，公共牌已齐直接比牌）；
+   *       翻前/翻牌/转牌 = Equity.allinEquity 蒙特卡洛（只发剩余公共牌，各对手底牌已知）。
+   * 事件 push 进 this.aivEvents（整桌 session 累积）；风险承担者座位 cumAiv/cumLuck 累计。
+   * @param {Array} evals 摊牌成手评估 [{seatIndex,value,...}]（完整河牌公共牌口径）
+   * @return {Array} 本手生成的 AIV 段（已同时挂进 this.aivEvents）
+   */
+  Game.prototype.recordAiv = function (evals) {
+    var seats = this.seats;
+    var n = seats.length;
+    var EquityM = Poker.Equity || Equity;
+    var CardsM = Poker.Cards || Cards;
+    var handEvents = [];
+    if (!EquityM || typeof EquityM.allinEquity !== 'function') return handEvents;
+    var i, k;
+    var levels = [];
+    for (i = 0; i < n; i++) {
+      var c = seats[i].committed;
+      if (c > 0 && levels.indexOf(c) < 0) levels.push(c);
+    }
+    levels.sort(function (a, b) { return a - b; });
+    var prev = 0;
+    for (k = 0; k < levels.length; k++) {
+      var lv = levels[k];
+      var S = 0;
+      var slice = new Array(n);
+      var elig = [];
+      for (i = 0; i < n; i++) {
+        slice[i] = 0;
+        var upto = Math.min(seats[i].committed, lv);
+        if (upto > prev) { slice[i] = upto - prev; S += slice[i]; }
+        if (seats[i].committed >= lv && !seats[i].folded) elig.push(i);
+      }
+      prev = lv;
+      if (S <= 0) continue;
+      // 该池至少 2 名全下玩家才算 AIV 段
+      var allInElig = [];
+      for (i = 0; i < elig.length; i++) if (seats[elig[i]].allIn) allInElig.push(elig[i]);
+      if (allInElig.length < 2) continue;
+      // 锁定街 = 该池全下玩家中最早全下的那条街（最短码先锁池）
+      var street = 'river';
+      for (i = 0; i < allInElig.length; i++) {
+        var s2 = seats[allInElig[i]]._allinStreet || 'preflop';
+        if (STREETS.indexOf(s2) < STREETS.indexOf(street)) street = s2;
+      }
+      // 权益：对池内可赢家按各自底牌 + 锁定街时点的公共牌模拟发牌
+      var holes = [];
+      for (i = 0; i < elig.length; i++) holes.push(seats[elig[i]].hole);
+      var boardAt = this.board.slice(0, this.boardLenAtStreet(street));
+      var eqArr = EquityM.allinEquity(holes, boardAt, 400, this.rng);
+      // 赢家（按完整河牌口径的最终成手比大小）
+      var winners = [];
+      var best = -1;
+      for (i = 0; i < evals.length; i++) {
+        var ei = evals[i];
+        if (elig.indexOf(ei.seatIndex) < 0) continue;
+        if (ei.value > best) { best = ei.value; winners = [ei.seatIndex]; }
+        else if (ei.value === best && winners.indexOf(ei.seatIndex) < 0) winners.push(ei.seatIndex);
+      }
+      var share = S / (winners.length || 1);
+      // 段描述：池内可赢家的底牌文本（复盘「大冤家牌」用）
+      var descParts = [];
+      for (i = 0; i < elig.length; i++) descParts.push(CardsM.cardsText(seats[elig[i]].hole));
+      var evs = [];
+      var players = [];
+      for (i = 0; i < n; i++) {
+        if (slice[i] <= 0) continue;
+        var eiPos = elig.indexOf(i);
+        var eqI = eiPos >= 0 ? (eqArr[eiPos] || 0) : 0;
+        var ev = eqI * S - slice[i];
+        var isWin = winners.indexOf(i) >= 0;
+        var actual = (isWin ? share : 0) - slice[i];
+        var luck = actual - ev;
+        var risk = eiPos >= 0; // 没弃牌且仍有赢池资格 = 风险承担者
+        if (risk) {
+          seats[i].cumAiv = (seats[i].cumAiv || 0) + ev;
+          seats[i].cumLuck = (seats[i].cumLuck || 0) + luck;
+        }
+        evs.push(ev);
+        players.push({ idx: i, name: seats[i].name, allIn: seats[i].allIn, contributed: slice[i], equity: eqI, ev: ev, actual: actual, luck: luck, risk: risk });
+      }
+      var evt = {
+        handNo: this.handNo,
+        street: street,
+        streetCN: STREET_CN[street] || street,
+        pot: S,
+        desc: descParts.join(' vs '),
+        players: players,
+        evs: evs
+      };
+      this.aivEvents.push(evt);
+      handEvents.push(evt);
+    }
+    return handEvents;
+  };
+
   // ============ 摊牌 ============
   Game.prototype.showdown = function () {
     var active = this.activeSeats();
@@ -693,6 +811,8 @@
     var i;
     var playerDelta = 0;
     var winners = [];
+    // C1 AIV：先按「全下段」记账（需要 committed/全下状态未被清掉），本手段返回给 result
+    var aivHand = isShowdown ? this.recordAiv(evals) : [];
     for (i = 0; i < this.seats.length; i++) {
       var s = this.seats[i];
       var win = payouts[i] || 0;
@@ -751,7 +871,8 @@
       street: this.street,
       handLog: this.handLog.slice(),
       streetSnaps: this.streetSnaps.slice(),
-      evals: evals.slice()
+      evals: evals.slice(),
+      aiv: aivHand.length ? { count: aivHand.length, events: aivHand } : null
     };
     this.lastResult = result;
     this.history.push(result);

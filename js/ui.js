@@ -785,6 +785,100 @@
     box.scrollTop = box.scrollHeight;
   };
 
+  // ================= 运气 / AIV（C1）=================
+  /** 带符号数字（+83 / -200） */
+  function fmtNum(v) {
+    var x = Math.round(v * 10) / 10;
+    return (x > 0 ? '+' : '') + x;
+  }
+
+  /** 全桌 AIV 聚合：按座位累计运气/EV + 按 |运气| 降序的全部「冤家」行 */
+  App.aivSession = function (g) {
+    var segs = g && g.aivEvents;
+    if (!segs || !segs.length) return null;
+    var luck = {}, evSum = {}, i, j;
+    var rows = [];
+    for (i = 0; i < segs.length; i++) {
+      var evt = segs[i];
+      var ps = evt.players || [];
+      for (j = 0; j < ps.length; j++) {
+        var p = ps[j];
+        if (!p.risk) continue;   // 只统计风险承担者（弃牌者运气=0 无意义）
+        luck[p.idx] = (luck[p.idx] || 0) + p.luck;
+        evSum[p.idx] = (evSum[p.idx] || 0) + p.ev;
+        rows.push({ handNo: evt.handNo, streetCN: evt.streetCN, desc: evt.desc, pot: evt.pot, idx: p.idx, name: p.name, ev: p.ev, actual: p.actual, luck: p.luck });
+      }
+    }
+    var seatIdx, worst = null, best = null;
+    for (seatIdx in luck) {
+      if (!Object.prototype.hasOwnProperty.call(luck, seatIdx)) continue;
+      var L = luck[seatIdx];
+      if (!worst || L < worst.luck) worst = { idx: +seatIdx, name: '', luck: L, ev: evSum[seatIdx] };
+      if (!best || L > best.luck) best = { idx: +seatIdx, name: '', luck: L, ev: evSum[seatIdx] };
+    }
+    rows.sort(function (a, b) { return Math.abs(b.luck) - Math.abs(a.luck); });
+    return { count: segs.length, rows: rows, worst: worst, best: best };
+  };
+
+  /** 复盘面板顶部：全桌运气摘要 + 大冤家牌 top 段 */
+  App.aivSessionHtml = function (g) {
+    var s = App.aivSession(g);
+    if (!s) return '';
+    var g2 = g;
+    // 补齐 最背/最旺 的名字（从座位表找）
+    var seatName = function (idx) {
+      if (g2 && g2.seats && g2.seats[idx]) return g2.seats[idx].name || ('座位' + (idx + 1));
+      var row = null;
+      for (var r = 0; r < s.rows.length; r++) if (s.rows[r].idx === idx) { row = s.rows[r]; break; }
+      return row ? row.name : ('座位' + (idx + 1));
+    };
+    var txt = '全下 EV：本桌累计 <b>' + s.count + '</b> 个全下段。';
+    if (s.worst) {
+      txt += '最背：<b class="aiv-bad">' + esc(seatName(s.worst.idx)) + '</b>（累计运气 ' + fmtNum(s.worst.luck) + '，EV 合计 ' + fmtNum(s.worst.ev) + '）';
+    }
+    if (s.best && (!s.worst || s.best.idx !== s.worst.idx)) {
+      txt += '　最旺：<b class="aiv-good">' + esc(seatName(s.best.idx)) + '</b>（累计运气 ' + fmtNum(s.best.luck) + '）';
+    }
+    var h = '<div class="rv-section"><div class="rv-h">运气 / AIV（全下 EV）</div>' +
+      '<div class="aiv-session">' + txt + '</div>';
+    if (s.rows.length) {
+      var top = s.rows.slice(0, 3);
+      top.forEach(function (r) {
+        var nm = r.name || seatName(r.idx);
+        h += '<div class="aiv-row">' +
+          '<span class="aiv-hand">第 ' + r.handNo + ' 手 · ' + esc(r.streetCN) +
+          (r.desc ? ' · ' + esc(r.desc) : '') + '</span>' +
+          '<span class="aiv-nm">' + esc(nm) + '</span>' +
+          '<span class="rs">EV ' + fmtNum(r.ev) + ' ／ 实际 ' + fmtNum(r.actual) +
+          ' ／ 运气 <b class="' + (r.luck >= 0 ? 'aiv-good' : 'aiv-bad') + '">' + fmtNum(r.luck) + '</b></span></div>';
+      });
+    }
+    return h + '</div>';
+  };
+
+  /** 当前手若含全下段，显示本手逐段 EV/运气 */
+  App.aivHandHtml = function (r) {
+    if (!r || !r.aiv || !r.aiv.count) return '';
+    var events = r.aiv.events || [];
+    var rows = [];
+    events.forEach(function (evt) {
+      (evt.players || []).forEach(function (p) {
+        if (!p.risk) return;
+        rows.push({ pot: evt.pot, desc: evt.desc, streetCN: evt.streetCN, name: p.name, ev: p.ev, actual: p.actual, luck: p.luck, allIn: p.allIn });
+      });
+    });
+    if (!rows.length) return '';
+    var h = '<div class="rv-section"><div class="rv-h">本手全下 EV（AIV）</div>';
+    rows.forEach(function (x) {
+      h += '<div class="aiv-row">' +
+        '<span class="aiv-nm">' + esc(x.name) + '</span>' +
+        '<span class="rs">底池 ' + x.pot + (x.desc ? ' · ' + esc(x.desc) : '') + ' · ' + esc(x.streetCN) + '</span>' +
+        '<span class="rs">EV ' + fmtNum(x.ev) + ' ／ 实际 ' + fmtNum(x.actual) +
+        ' ／ 运气 <b class="' + (x.luck >= 0 ? 'aiv-good' : 'aiv-bad') + '">' + fmtNum(x.luck) + '</b></span></div>';
+    });
+    return h + '</div>';
+  };
+
   // ================= 复盘面板 =================
   App.showReview = function (idx) {
     if (!App.reviews.length) return;
@@ -805,6 +899,10 @@
       '<span class="rv-delta ' + (r.delta > 0 ? 'up' : 'down') + '">' + (r.delta > 0 ? '+' : '') + r.delta + '</span></div>' +
       '<div class="rv-summary">' + esc(r.summary) + '</div>' +
       '</div>';
+
+    // C1 运气 / AIV：先显示本手全下段 EV，再是全桌最背/最旺 + 大冤家牌
+    html += App.aivHandHtml(r);
+    html += App.aivSessionHtml(App.game);
 
     // 决策点评
     if (r.decisions.length) {
