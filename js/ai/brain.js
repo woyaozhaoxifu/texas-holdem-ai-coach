@@ -200,6 +200,16 @@
         raiseProb = clamp(p.pfr / Math.max(p.vpip, 0.05), 0, 0.95);
       }
       if (topPct <= 0.08) raiseProb = Math.min(0.97, raiseProb + 0.25); // 超强牌几乎必加
+      // Boss 翻前读人：对手弃牌越多，越敢主动加注施压
+      if (p.id === 'boss' && p.adaptivity > 0) {
+        var pmP = ctx.playerModel;
+        if (pmP && pmP.hands >= 6) {
+          var frP = pmP.foldToBet != null ? pmP.foldToBet : 0.35;
+          raiseProb = clamp(raiseProb + (frP - 0.35) * 1.2, 0, 0.95);
+        } else {
+          raiseProb = clamp(raiseProb + 0.02, 0, 0.95);
+        }
+      }
 
       if (canRaise && rnd() < raiseProb) {
         var rword = raiseCount >= 1 ? '再加注' : '加注';
@@ -244,6 +254,8 @@
       var loose = pm.vpip != null ? pm.vpip : 0.30;
       bluffAdj = (foldRate - 0.35) * 1.1 * p.adaptivity;
       callAdj = (loose - 0.30) * 0.8 * p.adaptivity;
+    } else if (p.id === 'boss') {
+      bluffAdj = 0.04;   // 还没读透对手时也保持范围侵略性
     }
     var bluffFreq = clamp(p.bluffFreq + bluffAdj, 0.01, 0.75);
     var callThreshold = clamp(p.callThreshold + callAdj, 0.6, 2.0);
@@ -334,7 +346,7 @@
         if (medium && canRaise) return mkRaise('value', '下注拿价值。');
         return mk('check', 0, 0, eq, '这回先过牌，下一枪再说。');
       }
-      if (raiseCount >= 1 && rnd() < p.threeBetFreq * 1.6 && canRaise && (rel >= 1.1 || rnd() < p.bluffFreq)) {
+      if (raiseCount >= 1 && rnd() < p.threeBetFreq * 1.5 && canRaise && (rel >= 1.1 || rnd() < p.bluffFreq)) {
         return mkRaise(rel >= 1.1 ? 'value' : 'bluff',
           rel >= 1.1 ? '反加！我的牌不比你差。' : '再加注——你敢跟吗？');
       }
@@ -377,10 +389,17 @@
       }
       return mk('call', 0, Math.min(toCall, chips), eq, '胜率 ' + pct(eq) + '% ≥ 赔率 ' + pct(potOdds) + '%，跟注。');
     }
+    // 轻微负 EV 时的防御性跟注：有对子/成牌/听牌且价格不离谱 → 抓诈唬、保护范围，避免被过度剥削
+    var defend = (made >= 1 && potOdds < 0.34) || (made >= 2 && potOdds < 0.48 && nOpp <= 2) ||
+                 (made >= 3 && potOdds < 0.58) || (hasDraw && potOdds < 0.28);
+    if (defend) {
+      return mk('call', 0, Math.min(toCall, chips), eq,
+        '有' + (made >= 3 ? '牌力' : (made >= 1 ? '对子' : '听' + drawName)) + '，价格能接受，跟注防守。');
+    }
     if (weak && canRaise && rnd() < bluffFreq * 0.5 && nOpp <= 2) {
       return mkRaise('bluff', p.id === 'boss' ? '你最近弃牌偏多，这里我加注偷。' : '范围需要诈唬，加注。');
     }
-    if (hasDraw && potOdds < 0.22 && !isAllInCall) {
+    if (hasDraw && potOdds < 0.3 && !isAllInCall) {
       return mk('call', 0, Math.min(toCall, chips), eq, '底池赔率够追' + drawName + '，跟。');
     }
     return mk('fold', 0, 0, eq, '胜率 ' + pct(eq) + '% 低于底池赔率 ' + pct(potOdds) + '%，弃牌。');
