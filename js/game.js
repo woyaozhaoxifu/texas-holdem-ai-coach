@@ -57,6 +57,8 @@
         eliminated: false, // 比赛模式下：筹码归零被淘汰
         lastAction: '',
         lastReason: '',
+        _trap: false,      // B3 慢打陷阱线：本手内是否已跟注慢打，等下一街收网
+        _trapDone: false,  // B3 每座位每手至多慢打一次
         stats: { hands: 0, vpip: 0, pfr: 0, folds: 0, calls: 0, raises: 0, showdowns: 0, wins: 0, facedBet: 0, foldsToBet: 0, threeBet: 0, steal: 0, cBetFaced: 0, foldToCBet: 0 }
       });
     }
@@ -214,6 +216,8 @@
       s.allIn = false;
       s.lastAction = '';
       s.lastReason = '';
+      s._trap = false;
+      s._trapDone = false;
       // 关系随时间淡忘
       for (var rid in s.relations) {
         if (!Object.prototype.hasOwnProperty.call(s.relations, rid)) continue;

@@ -398,6 +398,31 @@
 
     var isAggressor = table.aggressorId === seat.id;
 
+    // ---- B3 慢打陷阱线：仅 tricky 型人格（tag/lag/solver/boss；rock/fish 基本不用）----
+    if (p.tricky >= 0.15) {
+      // 收网：上一街慢打跟注后，这街无人下注 → 主动打大注/全下收价值
+      if (seat._trap && !facingBet && (made || 0) >= 2 && canRaise) {
+        seat._trap = false;
+        var tbTotal = (seat.bet || 0) + chips;
+        var tb = (table.currentBet || 0) + Math.round((pot + toCall) * 0.8);
+        if (tb >= tbTotal) return mk('allin', tbTotal, chips, eq, '陷阱收网，全下收价值。');
+        return mk('raise', tb, tb - (seat.bet || 0), eq, '陷阱收网，下注收价值。');
+      }
+      // 设陷阱：已成强牌（≥两对）面对下注 → 小概率跟注慢打而非加注
+      if (facingBet && !seat._trap && !seat._trapDone && !isAllInCall && (made || 0) >= 2) {
+        var remainAfter = chips - Math.min(toCall, chips);
+        if (remainAfter >= pot * 0.6) {                       // 防呆 a：后手太少不慢打
+          var trapP = p.tricky * 0.4;
+          if (texWet) trapP *= 0.5;                           // 防呆 b：极湿面风险减半
+          if (rnd() < trapP) {
+            seat._trap = true;
+            seat._trapDone = true;                            // 防呆 c：每座位每手至多一次
+            return mk('call', 0, Math.min(toCall, chips), eq, '慢打，等你上钩。');
+          }
+        }
+      }
+    }
+
     // ---- Fish：跟注站 ----
     if (p.id === 'fish') {
       var anyHope = eq > baseline * 0.9 || made >= 2 || hasDraw || rnd() < 0.30;
