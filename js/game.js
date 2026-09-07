@@ -57,7 +57,7 @@
         eliminated: false, // 比赛模式下：筹码归零被淘汰
         lastAction: '',
         lastReason: '',
-        stats: { hands: 0, vpip: 0, pfr: 0, folds: 0, calls: 0, raises: 0, showdowns: 0, wins: 0, facedBet: 0, foldsToBet: 0 }
+        stats: { hands: 0, vpip: 0, pfr: 0, folds: 0, calls: 0, raises: 0, showdowns: 0, wins: 0, facedBet: 0, foldsToBet: 0, threeBet: 0, steal: 0, cBetFaced: 0, foldToCBet: 0 }
       });
     }
 
@@ -461,13 +461,13 @@
     this.handLog.push(log);
 
     // ---- 玩家统计（HUD + Boss 建模）----
+    // vpip/pfr/threeBet/steal/foldToCBet 改由手末 updateSeatStats() 按「每手一次」口径统一统计；
+    // facedBet/foldsToBet 保持逐次动作口径（Boss 读人用）
     var st = s.stats;
     st.hands = st.hands || 0;
     var facingBet = toCall > 0;
     if (s.isHuman) {
       if (facingBet) { st.facedBet++; if (act === 'fold') st.foldsToBet++; }
-      if (this.street === 'preflop' && (act === 'call' || act === 'raise' || act === 'allin')) st.vpip++;
-      if (this.street === 'preflop' && (act === 'raise' || act === 'allin')) st.pfr++;
     }
     if (act === 'fold') st.folds++;
     if (act === 'call') st.calls++;
@@ -627,6 +627,63 @@
     this.showdown();
   };
 
+  // B1：手末按「每手一次」口径把客观历史挂进 seat.stats（供 Boss 翻前读人/HUD）。
+  // vpip/pfr 语义：这手有没有主动入池/翻前加注（同一手无论加多少次只记 1）；
+  // threeBet/steal/cBetFaced/foldToCBet 同理按手标记。逐次动作（folds/calls/raises、
+  // facedBet/foldsToBet）仍在 act() 即时累计，两套口径互不干扰。
+  Game.prototype.updateSeatStats = function () {
+    var log = this.handLog;
+    var n = this.seats.length;
+    if (!log || !log.length || n === 0) return;
+    var i;
+    var flags = new Array(n);
+    for (i = 0; i < n; i++) flags[i] = { vpip: false, pfr: false, threeBet: false, steal: false, cBetFaced: false, foldToCBet: false };
+
+    var firstRaiseSeat = -1;
+    var raiserCount = 0;
+    for (i = 0; i < log.length; i++) {
+      var e = log[i];
+      if (e.street !== 'preflop') continue;
+      var si = e.seatIndex;
+      var aggr = e.action === 'raise' || e.action === 'allin';
+      if (aggr) {
+        if (firstRaiseSeat < 0) firstRaiseSeat = si;
+        if (raiserCount > 0) flags[si].threeBet = true;
+        raiserCount++;
+      }
+      if (e.action === 'call' || aggr) flags[si].vpip = true;
+      if (aggr) flags[si].pfr = true;
+    }
+    if (firstRaiseSeat >= 0) flags[firstRaiseSeat].steal = true;
+
+    var flopBettor = -1, flopBettorSeen = false;
+    for (i = 0; i < log.length; i++) {
+      var e3 = log[i];
+      if (e3.street !== 'flop') continue;
+      if (!flopBettorSeen && (e3.action === 'raise' || e3.action === 'allin')) {
+        flopBettorSeen = true;
+        flopBettor = e3.seatIndex;
+        continue;
+      }
+      if (flopBettorSeen && e3.seatIndex !== flopBettor && e3.toCall > 0) {
+        flags[e3.seatIndex].cBetFaced = true;
+        if (e3.action === 'fold') flags[e3.seatIndex].foldToCBet = true;
+      }
+    }
+
+    for (i = 0; i < n; i++) {
+      var st = this.seats[i].stats;
+      if (!st) continue;
+      var f = flags[i];
+      if (f.vpip) st.vpip++;
+      if (f.pfr) st.pfr++;
+      if (f.threeBet) st.threeBet++;
+      if (f.steal) st.steal++;
+      if (f.cBetFaced) st.cBetFaced++;
+      if (f.foldToCBet) st.foldToCBet++;
+    }
+  };
+
   Game.prototype.settle = function (payouts, evals, winnersInfo, isShowdown) {
     var i;
     var playerDelta = 0;
@@ -694,6 +751,9 @@
     this.lastResult = result;
     this.history.push(result);
     if (this.history.length > 30) this.history.shift();
+
+    // B1 手末客观历史挂账（须在 playerModel 计算之前）
+    this.updateSeatStats();
 
     // 更新玩家模型（Boss 读牌用）
     var ps = this.seats[this.playerIndex];
@@ -972,6 +1032,25 @@
     var s = this.seats[seatIndex];
     var posF = this.positionFactor(s);
     var agg = this.aggressorIndex >= 0 ? this.seats[this.aggressorIndex] : null;
+    // B1：仍存活（未弃牌/未坐出/未淘汰）对手的客观历史快照（Boss 读牌用）
+    var opponents = [];
+    var i2;
+    for (i2 = 0; i2 < this.seats.length; i2++) {
+      var os = this.seats[i2];
+      if (i2 === seatIndex || os.folded || os.sittingOut) continue;
+      var ost = os.stats;
+      opponents.push({
+        id: os.id, name: os.name,
+        hands: ost.hands || 0,
+        vpip: ost.hands ? (ost.vpip || 0) / ost.hands : 0,
+        pfr: ost.hands ? (ost.pfr || 0) / ost.hands : 0,
+        threeBet: ost.threeBet || 0,
+        steal: ost.steal || 0,
+        cBetFaced: ost.cBetFaced || 0,
+        foldToCBet: ost.foldToCBet || 0,
+        showdowns: ost.showdowns || 0
+      });
+    }
     return {
       seat: s,
       table: {
@@ -983,6 +1062,11 @@
         street: this.street,
         numOpponents: this.numOpponents(s),
         aggressorId: this.aggressorIndex >= 0 ? this.seats[this.aggressorIndex].id : null,
+        aggressorStats: agg ? (function (os2) {
+          var ost2 = os2.stats;
+          return { id: os2.id, hands: ost2.hands || 0, vpip: ost2.hands ? (ost2.vpip || 0) / ost2.hands : 0, cBetFaced: ost2.cBetFaced || 0, foldToCBet: ost2.foldToCBet || 0 };
+        })(agg) : null,
+        opponents: opponents,
         raiseCount: this.raiseCount,
         positionFactor: posF,
         // 偷鸡情境：前位无人加注、我在后位 → 可以偷盲

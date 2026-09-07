@@ -117,6 +117,23 @@
     // A2/A3 牌面纹理状态：翻牌后由 postflop 段填充；翻前保持默认（不调整尺度）
     var texWet = false, texDry = false, texDryFrac = 1.0, texWetFrac = 1.0;
 
+    // ---- B1 Boss 读对手客观历史（仅 adaptivity ≥ 0.85 的读牌大师）----
+    var bossRead = null;
+    if (p.id === 'boss' && p.adaptivity >= 0.85 && ctx.table && ctx.table.opponents) {
+      var bestFcr = 0, anyTight = false, anyLoose = false;
+      for (var oi = 0; oi < ctx.table.opponents.length; oi++) {
+        var ob = ctx.table.opponents[oi];
+        if (!ob || ob.hands < 15) continue;
+        var fcr = (ob.cBetFaced >= 3) ? (ob.foldToCBet || 0) / ob.cBetFaced : 0;   // 样本不足不读
+        if (fcr > bestFcr) bestFcr = fcr;
+        if (ob.vpip != null) {
+          if (ob.vpip < 0.18) anyTight = true;
+          if (ob.vpip > 0.5) anyLoose = true;
+        }
+      }
+      bossRead = { fcrHigh: bestFcr >= 0.45, tight: anyTight, loose: anyLoose };
+    }
+
     function mk(action, raiseTo, amount, equity, reason) {
       return { action: action, raiseTo: raiseTo || 0, amount: amount || 0, reason: reason || '', equity: equity };
     }
@@ -237,13 +254,20 @@
       // ---- 偷盲：前位都弃牌，我在后位开火 ----
       if (steal) {
         var stealRange = 0.5 + p.stealFreq * 0.5;   // 越爱偷，范围越宽
-        if (topPct <= stealRange && rnd() < p.stealFreq * (1 + moodConf * 0.4)) {
-          var sw = p.id === 'lag' ? '都弃牌？那这池归我了——加注偷盲！'
-            : p.id === 'solver' ? '盲注无人防守，按范围加注偷池。'
-              : p.id === 'boss' ? '你们都不敢玩，那我来收这个池。'
-                : p.id === 'tag' ? '后位偷盲，标准操作。'
-                  : p.id === 'rock' ? '位置好，这手可以偷。'
-                    : '加注试试……';
+        var stealNow = p.stealFreq;
+        if (bossRead) {
+          if (bossRead.tight) { stealRange += 0.12; stealNow = Math.min(0.95, stealNow * 1.2); } // 对手太紧→偷盲范围放宽
+          else if (bossRead.loose) { stealRange -= 0.10; stealNow = Math.max(0.01, stealNow * 0.85); } // 对手很松→少偷等价值
+        }
+        if (topPct <= stealRange && rnd() < stealNow * (1 + moodConf * 0.4)) {
+          var sw = bossRead && bossRead.tight ? '他太紧，偷他没商量。'
+            : bossRead && bossRead.loose ? '他很松，少偷，等价值再上。'
+              : p.id === 'lag' ? '都弃牌？那这池归我了——加注偷盲！'
+                : p.id === 'solver' ? '盲注无人防守，按范围加注偷池。'
+                  : p.id === 'boss' ? '你们都不敢玩，那我来收这个池。'
+                    : p.id === 'tag' ? '后位偷盲，标准操作。'
+                      : p.id === 'rock' ? '位置好，这手可以偷。'
+                        : '加注试试……';
           return mkRaise('bluff', sw);
         }
       }
@@ -336,6 +360,12 @@
     // 记恨也会让人更想反打回去
     bluffFreq = clamp(bluffFreq + moodTilt * 0.32 + moodConf * 0.12 + grudge * 0.22 + bully * 0.25, 0.01, 0.85);
     var stealBoost = (!facingBet && nOpp <= 2) ? 1.45 : 1.0;
+
+    // B1 Boss：读「活人」客观历史后微调诈唬频率（幅度克制 ≤1.2；仅 boss 消费，rock/fish/solver 不启用）
+    var bossNote = '';
+    var bossValueNote = '';
+    if (bossRead && bossRead.fcrHigh) { bluffFreq = clamp(bluffFreq * 1.2, 0.01, 0.85); bossNote = '他老弃牌，压他。'; }
+    else if (bossRead && bossRead.loose) { bluffFreq = clamp(bluffFreq * 0.8, 0.01, 0.75); bossNote = '他很松，少诈多价值。'; bossValueNote = '他很松，价值打厚。'; }
 
     var isAggressor = table.aggressorId === seat.id;
 
@@ -459,7 +489,7 @@
     // ---- Solver / Boss：EV 近似 + 极化尺度 ----
     var evEdge = eq - potOdds;
     if (!facingBet) {
-      if (strong && canRaise) return mkRaise('value', '胜率 ' + pct(eq) + '%，做价值下注。');
+      if (strong && canRaise) return mkRaise('value', '胜率 ' + pct(eq) + '%，做价值下注。' + (p.id === 'boss' && bossValueNote ? bossValueNote : ''));
       if (medium && hasDraw && canRaise && rnd() < 0.5) {
         return mkRaise('bluff', '有' + drawName + '，半诈唬——成牌或偷池都有收益。');
       }
@@ -467,6 +497,7 @@
         var whyBluffS = p.id === 'boss' ? '我读过你的弃牌率，这一枪你接不住。' : '平衡范围，这里需要一定频率的诈唬。';
         if (texDry) whyBluffS += '（牌面干燥，容易偷成）';
         else if (texWet) whyBluffS += '（牌面湿润，偶尔才开一枪）';
+        if (p.id === 'boss' && bossNote) whyBluffS += bossNote;
         return mkRaise('bluff', whyBluffS);
       }
       if (medium && canRaise && rnd() < 0.25) return mkRaise('value', '领先一点，下注保护。');
@@ -476,7 +507,7 @@
 
     if (evEdge > 0.10 && canRaise && (strong || (hasDraw && rnd() < 0.55))) {
       return mkRaise(strong ? 'value' : 'bluff',
-        strong ? '我的胜率 ' + pct(eq) + '% 远超赔率 ' + pct(potOdds) + '%，加注拿价值。'
+        strong ? '我的胜率 ' + pct(eq) + '% 远超赔率 ' + pct(potOdds) + '%，加注拿价值。' + (p.id === 'boss' && bossValueNote ? bossValueNote : '')
           : '听牌加注：成牌能赢大池，不成也能逼你弃。');
     }
     if (evEdge > -0.02) {
