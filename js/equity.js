@@ -416,6 +416,81 @@
     return out;
   }
 
+  /**
+   * 牌面纹理（干面/湿面认知，教学 + AI 下注调整用）。
+   * @param {Array<{r:number,s:number}>} board 公共牌（可为空）
+   * @return {Object}
+   *   wet: 0=干 1=中 2=湿
+   *   label: '干'|'中'|'湿'
+   *   flush: false（0~2 张同花）| 'threat'（恰 3 张同花）| 'flush'（≥4 张同花）
+   *   straight: false | 'threat'（存在可用两张手牌拼成 5 连顺的保守启发）
+   *   paired: 公共牌是否出现对子
+   */
+  function boardTexture(board) {
+    var out = { wet: 1, label: '中', flush: false, straight: false, paired: false };
+    var b = board || [];
+    if (!b.length) return out;
+
+    var rcnt = new Int32Array(15);
+    var scnt = new Int32Array(4);
+    var i;
+    for (i = 0; i < b.length; i++) {
+      rcnt[b[i].r]++;
+      scnt[b[i].s]++;
+    }
+    var maxSuit = 0;
+    for (i = 0; i < 4; i++) if (scnt[i] > maxSuit) maxSuit = scnt[i];
+    out.flush = maxSuit >= 4 ? 'flush' : (maxSuit === 3 ? 'threat' : false);
+
+    var paired = false;
+    var uniq = [];
+    for (var r = 14; r >= 2; r--) {
+      if (rcnt[r] > 0) { uniq.push(r); if (rcnt[r] >= 2) paired = true; }
+    }
+    out.paired = paired;
+    out.straight = hasStraightThreat(uniq) ? 'threat' : false;
+
+    // 综合湿润度：flush 直逼/已成 +2~3，顺子威胁 +2，成对 +1
+    var score = 0;
+    if (out.flush === 'flush') score += 3;
+    else if (out.flush === 'threat') score += 2;
+    if (out.straight === 'threat') score += 2;
+    if (out.paired) score += 1;
+
+    if (score >= 3) { out.wet = 2; out.label = '湿'; }
+    else if (score === 2) {
+      if (out.straight === 'threat') { out.wet = 2; out.label = '湿'; }
+      else { out.wet = 1; out.label = '中'; }
+    } else if (score === 1) { out.wet = 1; out.label = '中'; }
+    else { out.wet = 0; out.label = '干'; }
+    return out;
+  }
+
+  /** 保守顺子威胁启发：3 连或某 5 连窗口已占 ≥4 张（宁可偏保守） */
+  function hasStraightThreat(uniq) {
+    if (!uniq || uniq.length < 3) return false;
+    var i;
+    var maxRun = 1, run = 1;
+    for (i = 1; i < uniq.length; i++) {
+      run = (uniq[i - 1] - uniq[i] === 1) ? run + 1 : 1;
+      if (run > maxRun) maxRun = run;
+    }
+    if (maxRun >= 3) return true;
+    var set = new Uint8Array(15);
+    for (i = 0; i < uniq.length; i++) set[uniq[i]] = 1;
+    var win, c, k;
+    for (var hi = 14; hi >= 6; hi--) {
+      c = 0;
+      for (k = 0; k < 5; k++) if (set[hi - k]) c++;
+      if (c >= 4) return true;
+    }
+    // 轮子 A-5-4-3-2
+    win = [14, 2, 3, 4, 5];
+    c = 0;
+    for (k = 0; k < 5; k++) if (set[win[k]]) c++;
+    return c >= 4;
+  }
+
   var Equity = {
     CHEN_BASE: CHEN_BASE,
     chenScore: chenScore,
@@ -427,7 +502,8 @@
     detectDraw: detectDraw,
     outsToEquity: outsToEquity,
     describeHole: describeHole,
-    oddsPanel: oddsPanel
+    oddsPanel: oddsPanel,
+    boardTexture: boardTexture
   };
 
   Poker.Equity = Equity;

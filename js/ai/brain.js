@@ -114,6 +114,9 @@
     // 相对牌力基准：N 个对手时随机牌胜率 = 1/(N+1)
     var baseline = 1 / (nOpp + 1);
 
+    // A2/A3 牌面纹理状态：翻牌后由 postflop 段填充；翻前保持默认（不调整尺度）
+    var texWet = false, texDry = false, texDryFrac = 1.0, texWetFrac = 1.0;
+
     function mk(action, raiseTo, amount, equity, reason) {
       return { action: action, raiseTo: raiseTo || 0, amount: amount || 0, reason: reason || '', equity: equity };
     }
@@ -121,9 +124,30 @@
     function raiseSize(kind) {
       var base = pot + toCall;
       var frac = kind === 'value' ? p.betSizing.value : p.betSizing.bluff;
+      var mR = made || 0;
+      // A3 动态尺度：翻牌后按「牌力 + 牌面纹理」微调（翻前保持原尺度）
+      if (street !== 'preflop') {
+        if (kind === 'value') {
+          if (texWet && mR >= 2) frac *= 1.22;          // 湿面强牌（≥两对）→ 大价值
+          else if (texDry && mR === 1) frac *= 0.92;    // 干面只有一对 → 略收着打
+        } else {                                        // 诈唬 / 半诈唬
+          if (texWet) frac *= 0.82;                     // 湿面易被抓，降尺度
+          else if (texDry) frac *= 1.08;                // 干面更易偷成，略加大
+        }
+      }
       var target = (table.currentBet || 0) + Math.round(base * frac);
+      var cap1 = (table.currentBet || 0) + Math.round(base * 1.0);   // 一般不超过 1×pot
       if (p.betSizing.polarize > 0.6 && kind === 'value') {
-        target = Math.round((table.currentBet || 0) + base * (0.70 + 0.45 * rnd()));
+        // 极化人格：翻前维持原极化区间；翻后仅「湿面 + ≥两对」小概率超池 1.15~1.35×pot
+        if (street === 'preflop') {
+          target = Math.round((table.currentBet || 0) + base * (0.70 + 0.45 * rnd()));
+        } else if (texWet && mR >= 2 && rnd() < 0.25) {
+          target = Math.round((table.currentBet || 0) + base * (1.15 + 0.20 * rnd()));
+        } else if (target > cap1) {
+          target = cap1;
+        }
+      } else if (target > cap1) {
+        target = cap1;
       }
       var minTo = (table.currentBet || 0) + Math.max(table.minRaise || table.bigBlind || 20, table.bigBlind || 20);
       return Math.max(target, minTo);
@@ -283,6 +307,13 @@
     var weak = rel < 0.75;
     var isAllInCall = toCall >= chips;
 
+    // A2 牌面纹理：干/湿 影响 c-bet 频率与诈唬概率；下注尺度在 raiseSize 内使用
+    var tx = EQ.boardTexture(board);
+    texDry = tx.wet === 0;
+    texWet = tx.wet === 2;
+    texDryFrac = texDry ? 1.15 : 1.0;   // 干面 c-bet / 纯偷 概率加成
+    texWetFrac = texWet ? 0.75 : 1.0;   // 湿面 空气诈唬 概率削减
+
     // Boss 读牌：按玩家历史模型动态调整
     var bluffAdj = 0, callAdj = 0;
     if (p.adaptivity > 0 && ctx.playerModel && ctx.playerModel.hands >= 6) {
@@ -347,14 +378,15 @@
     // ---- TAG：教科书紧凶 ----
     if (p.id === 'tag') {
       if (!facingBet) {
-        if (isAggressor && rnd() < p.cbetFreq) {
-          if (medium || hasDraw || rnd() < p.bluffFreq) {
+        if (isAggressor && rnd() < p.cbetFreq * texDryFrac) {
+          if (medium || hasDraw || rnd() < p.bluffFreq * texWetFrac * texDryFrac) {
+            var txTag = texDry ? '牌面干燥，持续施压。' : (texWet ? '牌面湿润，诈唬降频。' : '');
             return mkRaise(medium ? 'value' : 'bluff',
-              medium ? '持续下注，我有牌面优势。' : '我开火，抢这个底池。');
+              (medium ? '持续下注，我有牌面优势。' : '我开火，抢这个底池。') + txTag);
           }
         }
         if (strong && canRaise) return mkRaise('value', '牌力领先，做价值下注。');
-        return mk('check', 0, 0, eq, medium ? '控制底池，先看牌。' : '过牌。');
+        return mk('check', 0, 0, eq, texWet ? '牌面湿润，不敢乱开火，过牌。' : (medium ? '控制底池，先看牌。' : '过牌。'));
       }
       if (raiseCount >= 2 && rel < 1.5 && rnd() < p.foldToAggression + 0.25) {
         return mk('fold', 0, 0, eq, '面对再加注，我的牌不够，弃。');
@@ -381,28 +413,32 @@
         var whyL = '';
         if (street === 'flop') {
           // 翻牌：维持高频 c-bet（松凶的核心施压点，即使空气也常开火）
-          if (rnd() < p.cbetFreq * (0.7 + pressure)) {
+          // 干面整体加成；湿面「纯空气」开火打折（有牌/听牌不受影响）
+          var airL = !(rel >= 1.1) && !hasDraw && (made || 0) < 2;
+          var flopChance = p.cbetFreq * (0.7 + pressure) * texDryFrac * (airL ? texWetFrac : 1.0);
+          if (rnd() < flopChance) {
             firedL = true;
-            whyL = rel >= 1.1 ? '主动开火，我有牌。' : '不管有没有牌，我先打——压力在我这边。';
+            whyL = rel >= 1.1 ? '主动开火，我有牌。'
+              : (texDry ? '牌面干燥，空气也压你一枪。' : '不管有没有牌，我先打——压力在我这边。');
           } else if (medium && canRaise) {
             return mkRaise('value', '下注拿价值。');
           }
         } else {
           // 转牌 / 河牌：收敛纯空气三连开 —— 有牌/听牌才继续压；单挑才偶尔偷一枪
           if (medium || hasDraw || rel >= 1.1) {
-            if (rnd() < p.cbetFreq * (0.55 + pressure * 0.6)) {
+            if (rnd() < p.cbetFreq * (0.55 + pressure * 0.6) * texDryFrac) {
               firedL = true;
               whyL = hasDraw && !medium ? ('我有' + drawName + '，半诈唬继续压。') : '转河有牌就继续打，不给你免费看。';
             }
-          } else if (huFire && rnd() < p.bluffFreq * 0.5) {
+          } else if (huFire && rnd() < p.bluffFreq * 0.5 * texWetFrac * texDryFrac) {
             firedL = true;
-            whyL = '单挑就偷你一枪。';
+            whyL = texWet ? '单挑湿面偷一枪，只此一次。' : '单挑就偷你一枪。';
           }
         }
         if (firedL) {
           return mkRaise(rel >= 1.1 ? 'value' : 'bluff', whyL);
         }
-        return mk('check', 0, 0, eq, '这回先过牌，下一枪再说。');
+        return mk('check', 0, 0, eq, texWet ? '牌面湿润，先稳一手，过牌。' : '这回先过牌，下一枪再说。');
       }
       if (raiseCount >= 1 && rnd() < p.threeBetFreq * 1.5 && canRaise && (rel >= 1.1 || rnd() < p.bluffFreq)) {
         return mkRaise(rel >= 1.1 ? 'value' : 'bluff',
@@ -427,12 +463,15 @@
       if (medium && hasDraw && canRaise && rnd() < 0.5) {
         return mkRaise('bluff', '有' + drawName + '，半诈唬——成牌或偷池都有收益。');
       }
-      if (weak && canRaise && rnd() < bluffFreq * stealBoost * (0.6 + 0.5 * posFactor)) {
-        return mkRaise('bluff', p.id === 'boss' ? '我读过你的弃牌率，这一枪你接不住。' : '平衡范围，这里需要一定频率的诈唬。');
+      if (weak && canRaise && rnd() < bluffFreq * stealBoost * (0.6 + 0.5 * posFactor) * texWetFrac * texDryFrac) {
+        var whyBluffS = p.id === 'boss' ? '我读过你的弃牌率，这一枪你接不住。' : '平衡范围，这里需要一定频率的诈唬。';
+        if (texDry) whyBluffS += '（牌面干燥，容易偷成）';
+        else if (texWet) whyBluffS += '（牌面湿润，偶尔才开一枪）';
+        return mkRaise('bluff', whyBluffS);
       }
       if (medium && canRaise && rnd() < 0.25) return mkRaise('value', '领先一点，下注保护。');
       if (strong && rnd() < p.tricky) return mk('check', 0, 0, eq, '慢打一手，让你先进来。');
-      return mk('check', 0, 0, eq, '过牌，控制底池。');
+      return mk('check', 0, 0, eq, texWet ? '牌面湿润，控制底池，过牌。' : '过牌，控制底池。');
     }
 
     if (evEdge > 0.10 && canRaise && (strong || (hasDraw && rnd() < 0.55))) {
