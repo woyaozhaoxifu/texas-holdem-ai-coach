@@ -780,6 +780,8 @@
       });
     }
     arr.sort(function (a, b) {
+      // 自然终局（只剩 1 人）：幸存者强制第一，其余按累计积分 desc（同分比筹码）
+      if (m && m.enabled && m.over && a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
       if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts;
       if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
       return (b.chips - a.chips) || (a.seatIndex - b.seatIndex);

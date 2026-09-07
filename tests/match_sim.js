@@ -176,13 +176,29 @@ try {
   assert(g.match.over === true, '比赛结束 over=true');
   assert(!!ev3.roundEnd && ev3.roundEnd.over === true, 'roundEnd.over=true');
   assert(!!ev3.matchEnd, 'matchEnd 事件触发');
-  // 终局语义：最终排名按累计积分排序（同分按筹码）；最后幸存者持有全部筹码
-  assert(ev3.matchEnd.champion.id === g.finalStandings()[0].id, 'matchEnd 冠军 = 累计积分榜首');
+  // 终局语义（自然终局）：幸存者强制第一并成为冠军；其余按累计积分（同分比筹码）
   var surv = null;
   ev3.matchEnd.standings.forEach(function (r) { if (!r.eliminated) surv = r; });
   assert(!!surv && surv.chips === TOTAL, '最后幸存者持有全部筹码（无补筹）');
+  assert(!!surv && ev3.matchEnd.standings[0].id === surv.id, '自然终局 standings[0] = 最后幸存者');
+  assert(!!surv && !ev3.matchEnd.standings[0].eliminated, '自然终局冠军未被标记淘汰');
+  assert(ev3.matchEnd.champion.id === surv.id, 'matchEnd 冠军 = 最后幸存者');
   assert(sumChips(g) === TOTAL, '终局总筹码守恒（无补筹）');
   assert(g.startHand() === false, '比赛结束后 startHand 恒拒绝');
+
+  // 中途退出语义：比赛未结束（自然幸存者尚未产生）时，最终排名按累计积分 desc
+  var g4 = new Game({
+    seats: buildSeats(ids, 200000),
+    smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: 200000,
+    match: { enabled: true, roundHands: 15, blindLevels: [
+      { sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }] }
+  });
+  for (var q = 0; q < 15; q++) playHand(g4);
+  assert(g4.match.pendingRoundEnd === true && !g4.match.over, '中途退出场景：轮末且未终局');
+  var finQ = g4.finalStandings();
+  var maxPtsQ = finQ.reduce(function (a, r) { return Math.max(a, r.totalPts); }, -1);
+  assert(finQ[0].totalPts === maxPtsQ, '中途退出：榜单第 1 名 = 累计积分最高者');
+  assert(finQ[0].totalPts >= finQ[1].totalPts, '中途退出：按累计积分降序');
 
   console.log('—— 练习模式（无 match 配置）行为不变 ——');
   var g2 = new Game({
