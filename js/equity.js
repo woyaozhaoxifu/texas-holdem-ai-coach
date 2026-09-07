@@ -256,6 +256,167 @@
     return clamp(outs * r * 0.0217, 0, 0.95); // 近似 2% 规则
   }
 
+  // ============ 胜率助手（教学面板专用）============
+
+  var RANK_L = { 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+
+  /**
+   * 起手牌一句话描述（教学面板翻前用）。
+   * @param {Array<{r:number,s:number}>} hole
+   * @return {string} 如 "对子 A"、"同花连张 AK"、"两高张 QJ"
+   */
+  function describeHole(hole) {
+    if (!hole || hole.length < 2) return '';
+    var a = hole[0], b = hole[1];
+    var hi = Math.max(a.r, b.r), lo = Math.min(a.r, b.r);
+    var suited = a.s === b.s;
+    var gap = hi - lo;
+    var tag;
+    if (hi === lo) tag = '对子 ' + RANK_L[hi];
+    else if (suited && gap <= 1) tag = '同花连张';
+    else if (suited && gap <= 3) tag = '同花（间隔小）';
+    else if (suited) tag = '同花高张';
+    else if (gap <= 1) tag = '连张';
+    else if (gap <= 3) tag = '间隔连牌';
+    else if (lo >= 11) tag = '两高张';
+    else if (hi >= 14 && lo >= 8) tag = 'A 带大牌';
+    else tag = '散牌';
+    if (hi === lo) return tag;
+    return tag + ' ' + RANK_L[hi] + RANK_L[lo];
+  }
+
+  /**
+   * 胜率助手核心：对「当前已知牌面」做确定性穷举（无随机、可复现）。
+   *
+   * 翻牌后：把每个“还没看到的牌”两两当作一个随机对手的底牌，
+   * 与已发公共牌组成一手（翻牌 5 张 / 转牌 6 张 / 河牌 7 张），与我的牌逐一比大小：
+   *   wins / ties / loses → equity1 = (wins + ties/2) / total
+   *   beats[] = 赢过我的对手牌型按类别聚合（一对/两对/三条/顺子/同花/葫芦/四条/同花顺…）
+   * 说明：翻牌/转牌只统计“当前已明牌面”下对手能成的牌，不含后续街再追上；
+   *       发到河牌后即等于真实单挑胜率。
+   *
+   * 翻牌前：公共牌未发，无法穷举对手成牌 → equity1 用蒙特卡洛（一路发到河牌），
+   * beats 为空，另给起手牌描述 holeDesc。
+   *
+   * @param {Array<{r:number,s:number}>} hole 自己的两张底牌
+   * @param {Array<{r:number,s:number}>} board 公共牌（0/3/4/5 张）
+   * @param {number=} numOpponents 仍在池中的对手数（用于 N 人近似），默认 1
+   * @param {number=} iterations 翻牌前蒙特卡洛次数，默认 600
+   * @param {Function=} rng 随机源（测试可传入种子 rng）
+   * @return {Object} 见实现内字段说明
+   */
+  function oddsPanel(hole, board, numOpponents, iterations, rng) {
+    var HEv = Poker.HandEval || HE;
+    var nOpp = Math.max(1, numOpponents || 1);
+    var out = {
+      street: 'preflop',            // preflop | flop | turn | river
+      preflop: true,
+      numOpponents: nOpp,
+      equity1: 0,                   // 单挑：翻前=蒙特卡洛到河牌；翻后=当前明牌穷举（含平局折半）
+      equityN: 0,                   // 对 N 个对手的近似（e_n = e1 ^ (1 + 0.86*(n-1))）
+      tiePct: 0,                    // 平局占比（0..1）
+      total: 0,                     // 穷举组合总数（翻前为 0）
+      wins: 0, ties: 0, loses: 0,   // 穷举计数（翻前为 0）
+      beats: [],                    // [{rank,name,count,pct}] 赢过我的牌型（按出现次数降序）
+      myMadeRank: 0,
+      myMadeName: '',
+      holeDesc: ''
+    };
+
+    var holeIdx = [], boardIdx = [], i, j;
+    for (i = 0; i < hole.length; i++) holeIdx.push(HEv.idxOf(hole[i]));
+    for (i = 0; i < (board ? board.length : 0); i++) boardIdx.push(HEv.idxOf(board[i]));
+    var k = boardIdx.length;
+    if (k === 0) {
+      out.street = 'preflop';
+      out.preflop = true;
+      out.holeDesc = describeHole(hole);
+      // 翻牌前：蒙特卡洛一路发到河牌（确定性测试可传种子 rng）
+      var mc = winRateIdx(holeIdx, boardIdx, 1, iterations || 600, rng);
+      out.equity1 = clamp(mc.equity, 0, 1);
+      var expPre = 1 + 0.86 * (nOpp - 1);
+      out.equityN = clamp(Math.pow(out.equity1, expPre), 0.01, 0.99);
+      return out;
+    }
+
+    var streetName = k === 3 ? 'flop' : (k === 4 ? 'turn' : 'river');
+    out.street = streetName;
+    out.preflop = false;
+
+    // 已用牌 → 未用牌
+    var used = new Uint8Array(52);
+    for (i = 0; i < holeIdx.length; i++) used[holeIdx[i]] = 1;
+    for (i = 0; i < boardIdx.length; i++) used[boardIdx[i]] = 1;
+    var unseen = [];
+    for (i = 0; i < 52; i++) if (!used[i]) unseen.push(i);
+    var total = unseen.length * (unseen.length - 1) / 2;
+
+    // 我的当前最佳 5 张（5/6/7 张均可用 valueIdx）
+    var nAll = k + 2;
+    var myAll = new Array(nAll);
+    for (i = 0; i < 2; i++) myAll[i] = holeIdx[i];
+    for (i = 0; i < k; i++) myAll[2 + i] = boardIdx[i];
+    var myVal = HEv.valueIdx(myAll, nAll);
+    var myRank = Math.floor(myVal / 1048576);
+
+    // 逐个枚举对手两张
+    var oppAll = new Array(nAll);
+    for (i = 0; i < k; i++) oppAll[i] = boardIdx[i];
+    var wins = 0, ties = 0, loses = 0;
+    var loseByRank = {};
+    var m = unseen.length;
+    for (i = 0; i < m; i++) {
+      for (j = i + 1; j < m; j++) {
+        oppAll[k] = unseen[i];
+        oppAll[k + 1] = unseen[j];
+        var ov = HEv.valueIdx(oppAll, nAll);
+        if (ov > myVal) {
+          loses++;
+          var rk = Math.floor(ov / 1048576);
+          loseByRank[rk] = (loseByRank[rk] || 0) + 1;
+        } else if (ov === myVal) {
+          ties++;
+        } else {
+          wins++;
+        }
+      }
+    }
+
+    // 聚合“赢过我的牌型”
+    var rankKeys = [];
+    for (var r in loseByRank) {
+      if (Object.prototype.hasOwnProperty.call(loseByRank, r)) rankKeys.push(parseInt(r, 10));
+    }
+    rankKeys.sort(function (a, b) {
+      if (loseByRank[b] !== loseByRank[a]) return loseByRank[b] - loseByRank[a];
+      return b - a;
+    });
+    var beats = [];
+    for (i = 0; i < rankKeys.length; i++) {
+      var rki = rankKeys[i];
+      beats.push({
+        rank: rki,
+        name: HEv.HAND_NAMES[rki] || HEv.handName(rki),
+        count: loseByRank[rki],
+        pct: loseByRank[rki] / total
+      });
+    }
+
+    var eq1 = total ? (wins + ties / 2) / total : 1;
+    var exp = 1 + 0.86 * (nOpp - 1);
+    out.equity1 = clamp(eq1, 0, 1);
+    out.equityN = clamp(Math.pow(out.equity1, exp), 0.01, 0.99);
+    out.tiePct = total ? ties / total : 0;
+    out.total = total;
+    out.wins = wins;
+    out.ties = ties;
+    out.loses = loses;
+    out.beats = beats;
+    out.myMadeRank = myRank;
+    out.myMadeName = HEv.HAND_NAMES[myRank] || HEv.handName(myRank);
+    return out;
+  }
+
   var Equity = {
     CHEN_BASE: CHEN_BASE,
     chenScore: chenScore,
@@ -265,7 +426,9 @@
     winRateIdx: winRateIdx,
     handStrength: handStrength,
     detectDraw: detectDraw,
-    outsToEquity: outsToEquity
+    outsToEquity: outsToEquity,
+    describeHole: describeHole,
+    oddsPanel: oddsPanel
   };
 
   Poker.Equity = Equity;

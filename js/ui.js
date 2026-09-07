@@ -28,7 +28,10 @@
     selected: ['fish', 'rock', 'tag', 'lag', 'solver'],
     stats: null,
     aiTimer: null,
-    bubbleTimer: null
+    bubbleTimer: null,
+    oddsKey: '',          // 胜率助手缓存键（街/牌面/对手数变化才重算）
+    oddsCache: null,      // 最近一次 oddsPanel 结果
+    oddsCollapsed: false  // 用户手动折叠
   };
 
   // 比赛盲注升级表（第 N 轮取第 N 档）
@@ -83,6 +86,13 @@
     el('btnNextRound').onclick = function () { App.nextRound(); };
     el('btnMatchQuit').onclick = function () { App.showFinal(); };
     el('btnBackLobby').onclick = function () { App.backLobby(); };
+
+    el('oddsCollapse').onclick = function () {
+      App.oddsCollapsed = !App.oddsCollapsed;
+      el('oddsCollapse').textContent = App.oddsCollapsed ? '▸' : '▾';
+      App.updateOddsPanel();
+    };
+    el('chkOddsPin').onchange = function () { App.updateOddsPanel(); };
 
     App.openSetup();
   };
@@ -294,6 +304,85 @@
     ['btnFold', 'btnCheck', 'btnCall', 'btnRaise', 'btnAllIn', 'btnHalfPot', 'btnTwoThirdPot', 'btnFullPot', 'raiseRange'].forEach(function (id) {
       el(id).disabled = disabled;
     });
+  };
+
+  // ================= 胜率助手（我的回合显示「会输给什么牌」）=================
+  /**
+   * 更新右侧胜率助手：仅在我的回合（或勾选「固定」时）展示。
+   * 计算有缓存：街/牌面/我的底牌/对手数不变则不重算，避免每帧穷举。
+   */
+  App.updateOddsPanel = function () {
+    var wrap = el('oddsWrap');
+    var g = App.game;
+    if (!g) { wrap.classList.add('hidden'); return; }
+    var seat = g.seats[g.playerIndex];
+    var myTurn = g.currentActor === g.playerIndex && !g.isHandOver;
+    var pinned = !!el('chkOddsPin').checked;
+    var show = !!seat && !seat.folded && seat.hole && seat.hole.length === 2 && !g.isHandOver && (myTurn || pinned);
+    if (!show) {
+      wrap.classList.add('hidden');
+      App.oddsKey = '';
+      return;
+    }
+    wrap.classList.remove('hidden');
+    var body = el('oddsBody');
+    if (App.oddsCollapsed) { body.classList.add('hidden'); return; }
+    body.classList.remove('hidden');
+
+    var nOpp = g.numOpponents(seat);
+    var key = g.street + '|' + nOpp + '|' +
+      seat.hole[0].r + ':' + seat.hole[0].s + ',' + seat.hole[1].r + ':' + seat.hole[1].s + '|' +
+      g.board.map(function (c) { return c.r + ':' + c.s; }).join(',');
+    if (key === App.oddsKey && App.oddsCache) return;
+
+    var data = null;
+    try { data = Poker.Equity.oddsPanel(seat.hole, g.board, nOpp, 600); } catch (e) { data = null; }
+    if (!data) {
+      body.innerHTML = '<div class="odds-note">暂时无法计算胜率。</div>';
+      return;
+    }
+    App.oddsKey = key;
+    App.oddsCache = data;
+    body.innerHTML = App.oddsHtml(data);
+  };
+
+  /** 把 oddsPanel 结果渲染成教学面板 HTML（纯文本 + 少量 span） */
+  App.oddsHtml = function (d) {
+    var html = '';
+    var eqTxt = pct(d.equity1);
+    var nLine = d.numOpponents > 1
+      ? '　vs ' + d.numOpponents + ' 人 <span class="od-approx">≈ ' + pct(d.equityN) + '%</span>'
+      : '';
+    html += '<div class="odds-eq">vs 1 个随机对手 <b>' + eqTxt + '%</b>' + nLine + '</div>';
+
+    if (d.preflop) {
+      html += '<div class="odds-hole">我的起手牌：<b>' + esc(d.holeDesc) + '</b></div>' +
+        '<div class="odds-note">翻牌前公共牌未发，无法列出具体会输给的牌。</div>' +
+        '<div class="odds-how">怎么算的：把还没看到的牌发给 1 个对手，一路发到河牌反复模拟比大小，我赢的次数 ÷ 模拟次数 ≈ 胜率。翻牌前只需要把胜率跟跟注赔率比：胜率更高就跟注或加注，否则弃牌。</div>';
+      return html;
+    }
+
+    // 翻牌/转牌/河牌：列出“会输给什么牌”
+    var loseH = d.street === 'river' ? '我会输给什么牌' : '我会输给什么牌（按当前牌面）';
+    html += '<div class="odds-lose-h">' + loseH + '</div>';
+    if (d.beats.length) {
+      var top = d.beats.slice(0, 5);
+      var chips = '';
+      for (var i = 0; i < top.length; i++) {
+        var b = top[i];
+        chips += '<span class="odds-chip">' + esc(b.name) + ' ' + b.count + '（' + (b.pct * 100).toFixed(1) + '%）</span>';
+      }
+      html += '<div class="odds-beats">' + chips + '</div>';
+    } else {
+      html += '<div class="odds-none">当前牌面没有对手能赢你</div>';
+    }
+    html += '<div class="odds-tie">平局 <b>' + pct(d.tiePct) + '%</b>　含平局折半我赢 <b>' + eqTxt + '%</b>　（我当前成牌：' + esc(d.myMadeName) + '）</div>';
+
+    var how = d.street === 'river'
+      ? '怎么算的：把每张没看到的牌两两发给 1 个对手，与公共牌凑成 7 张比大小：我赢的次数 + 平局一半 ÷ ' + d.total + ' 种组合 = 单挑胜率（河牌已发完，精确无误）。'
+      : '怎么算的：把每张没看到的牌两两当作对手底牌，与当前公共牌凑牌比大小：我赢的次数 + 平局一半 ÷ ' + d.total + ' 种组合 = 当前牌面胜率。转牌/河牌对手还可能反超我，真实胜率请看上方的教学提示条。';
+    html += '<div class="odds-how">' + how + '</div>';
+    return html;
   };
 
   App.showCoachTip = function () {
@@ -508,6 +597,7 @@
     el('pot').textContent = g.potTotal();
     el('streetLabel').textContent = g.streetCN(g.street);
     el('myChips').textContent = g.seats[g.playerIndex].chips;
+    App.updateOddsPanel();
   };
 
   /** 桌面上的玩家大牌区（座位从座排行里移到这里，牌翻开朝上） */
