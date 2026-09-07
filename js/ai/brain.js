@@ -163,6 +163,43 @@
       // 噪声
       if (p.noise > 0) needTop *= (1 + (rnd() * 2 - 1) * p.noise * 0.5);
 
+      // ---- 短码推推乐：后手 ≤ pushBB×BB → 全下/弃牌优先，不再小额墨迹 ----
+      var bbN = table.bigBlind || 20;
+      var stackBB = chips / bbN;
+      var pushBB = (p.pushBB != null) ? p.pushBB : 12;
+      if (stackBB <= pushBB) {
+        // 越短推得越宽：刚到阈值≈常规范围，1BB 时几乎任何可玩牌都推
+        var urgency = Math.min(1, (pushBB - stackBB) / pushBB);          // 0(临界)..1(1BB)
+        var pushTop = clamp((p.preflopTop != null ? p.preflopTop : p.vpip) + 0.18 * urgency + 0.06, 0.03, 0.85);
+        pushTop *= (1 + 0.35 * p.positionAware * Math.max(0, posFactor - 0.5)); // 后位放宽
+        var fish = p.id === 'fish';
+        var allinTotal = (seat.bet || 0) + chips;
+        var shove = function (why) { return mk('allin', allinTotal, chips, 0, why); };
+
+        // ① 偷盲位（前位全弃、我后位）：范围内直接全下抢盲，最省事最有压迫
+        if (steal && topPct <= pushTop) return shove('后手不多，直接全下抢盲。');
+        // ② 大盲免费看牌：有料就全下收池，没料免费看翻牌
+        if (toCall === 0) {
+          if (topPct <= pushTop && raiseCount === 0) return shove('免费看牌？不如全下收池。');
+          return mk('check', 0, 0, 0, word + '，免费看翻牌，不推。');
+        }
+        // ③ 面对下注/加注：强牌直接反推全下；只在盲注位超便宜(≤1BB 且赔率极高)才小补；否则弃
+        var needEq = toCall / (pot + toCall);
+        var approxEq = Math.max(0.08, Math.min(0.92, 0.5 + (0.5 - topPct) * 0.45));
+        var strongHand = topPct <= pushTop * 0.75;
+        // 盲注位补码：已投入盲注 + 跟注额 ≤1BB + 底池赔率极好 → 允许小额跟注看翻牌（其余一律不磨蹭）
+        var bbFill = (seat.bet || 0) > 0 && toCall <= bbN * 1.1 && needEq <= 0.25;
+        var cheapCall = fish ? (approxEq >= needEq + 0.02) : (bbFill && approxEq >= needEq + 0.08);
+        if (strongHand && canRaise && toCall < chips * 0.6) {
+          return shove(word + '，短码反推，不给你看便宜翻牌。');
+        }
+        if (strongHand || cheapCall) {
+          return mk('call', 0, Math.min(toCall, chips), 0,
+            (strongHand ? word + '，短码接了。' : '盲注位赔率太好，' + word + '，补一下看翻牌。'));
+        }
+        return mk('fold', 0, 0, 0, word + '，后手珍贵，不在推送范围，弃。');
+      }
+
       // ---- 反偷：对手在后位偷盲，我用 3-bet 反击 ----
       if (resteal && canRaise && topPct < 0.88 && rnd() < p.restealFreq * (1 + moodTilt * 0.5)) {
         var rw = p.id === 'lag' ? '想偷我的盲？反加！'

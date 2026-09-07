@@ -195,7 +195,13 @@
       App.busy = true;
       App.disableControls(true);
       App.render();
-      var delay = 650 + Math.random() * 800;
+      // 先决策、后定延时：弃牌/过牌不“装思考”，全下/加注才停顿
+      var dec = g.aiDecide(g.currentActor);
+      App._aiDecision = { idx: g.currentActor, d: dec };
+      var delay;
+      if (dec.action === 'fold') delay = 350 + Math.random() * 250;
+      else if (dec.action === 'check' || dec.action === 'call') delay = 550 + Math.random() * 350;
+      else delay = 750 + Math.random() * 550;   // raise / allin：关键决策多想想
       App.aiTimer = setTimeout(function () { App.doAI(); }, delay);
     }
   };
@@ -205,7 +211,10 @@
     if (!g || g.isHandOver || g.currentActor < 0) { App.loop(); return; }
     var idx = g.currentActor;
     var seat = g.seats[idx];
-    var d = g.aiDecide(idx);
+    // 用 loop 里预决策的结果（若状态没变），避免二次计算且让延时与动作匹配
+    var pd = App._aiDecision;
+    var d = (pd && pd.idx === idx) ? pd.d : g.aiDecide(idx);
+    App._aiDecision = null;
     App.showBubble(idx, d.reason || '……');
     var before = g.street;
     g.act(idx, d.action, d.raiseTo, d.reason);
@@ -215,7 +224,7 @@
     if (g.street !== before) App.log('★ ' + g.streetCN(g.street) + '：' + Cards.cardsText(g.board), 'hl');
     App.render();
     App.busy = false;
-    setTimeout(function () { App.loop(); }, 260);
+    setTimeout(function () { App.loop(); }, 200);
   };
 
   App.playerAct = function (action, raiseTo) {
