@@ -27,6 +27,7 @@
   var HE = Poker.HandEval || treq('../handEval.js');
   var EQ = Poker.Equity || treq('../equity.js');
   var PERS = Poker.Personalities || treq('./personalities.js');
+  var ICM = Poker.ICM || treq('../icm.js');
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
   function rnd() { return Math.random(); }
@@ -117,6 +118,8 @@
     // A2/A3 牌面纹理状态：翻牌后由 postflop 段填充；翻前保持默认（不调整尺度）
     var texWet = false, texDry = false, texDryFrac = 1.0, texWetFrac = 1.0;
 
+    if (seat) seat._icmUsed = false;   // B2：本决策是否触发了 ICM 收紧（供 reason 标注）
+
     // ---- B1 Boss 读对手客观历史（仅 adaptivity ≥ 0.85 的读牌大师）----
     var bossRead = null;
     if (p.id === 'boss' && p.adaptivity >= 0.85 && ctx.table && ctx.table.opponents) {
@@ -132,6 +135,31 @@
         }
       }
       bossRead = { fcrHigh: bestFcr >= 0.45, tight: anyTight, loose: anyLoose };
+    }
+
+    // ---- B2 ICM：比赛 + 奖金结构下，「跟注可能掏空大半/出局」时收紧（仅 payouts 启用）----
+    if (facingBet && toCall >= chips * 0.45 && ctx.table && ctx.table.icm && ICM &&
+        typeof ICM.icmEquity === 'function') {
+      var ic = ctx.table.icm;
+      try {
+        var stkF = ic.stacks.slice();
+        stkF[ic.meIndex] = chips;                    // 弃牌：后手不变（不付 toCall）
+        var stkW = ic.stacks.slice();
+        stkW[ic.meIndex] = chips + (table.pot || 0);   // 赢下整池净得 chips+pot
+        var stkL = ic.stacks.slice();
+        stkL[ic.meIndex] = 0;                          // 输光出局 → 拿剩余最低名次
+        var evF = ICM.icmEquity(stkF, ic.payouts)[ic.meIndex] || 0;
+        var evW = ICM.icmEquity(stkW, ic.payouts)[ic.meIndex] || 0;
+        var evL = ICM.icmEquity(stkL, ic.payouts)[ic.meIndex] || 0;
+        var thDen = evW - evL;
+        if (thDen > 1e-9) {
+          var th = Math.max(0, (evF - evL) / thDen);
+          if (th > potOdds + 1e-6) {
+            potOdds = th;   // 用 ICM 盈亏平衡胜率替代纯筹码赔率参与比较 → 更倾向弃
+            if (seat) seat._icmUsed = true;
+          }
+        }
+      } catch (eIc) { /* ICM 不可用则忽略 */ }
     }
 
     function mk(action, raiseTo, amount, equity, reason) {
@@ -226,6 +254,7 @@
         }
         // ③ 面对下注/加注：强牌直接反推全下；只在盲注位超便宜(≤1BB 且赔率极高)才小补；否则弃
         var needEq = toCall / (pot + toCall);
+        if (seat && seat._icmUsed) needEq = Math.min(0.92, needEq * 1.25); // B2 ICM：短码跟注也需更高胜率
         var approxEq = Math.max(0.08, Math.min(0.92, 0.5 + (0.5 - topPct) * 0.45));
         var strongHand = topPct <= pushTop * 0.75;
         // 盲注位补码：已投入盲注 + 跟注额 ≤1BB + 底池赔率极好 → 允许小额跟注看翻牌（其余一律不磨蹭）
@@ -579,6 +608,9 @@
     if (ctx.seat && ctx.seat.personality) {
       r.reason = flavor(ctx.seat, ctx.seat.personality, r.reason);
       r.reason = rivalFlavor(ctx, r);
+      if (ctx.seat._icmUsed && (r.action === 'fold' || r.action === 'check')) {
+        r.reason = (r.reason || '') + '（ICM 保护名次，不拿锦标赛生命冒险）';
+      }
     }
     return r;
   }

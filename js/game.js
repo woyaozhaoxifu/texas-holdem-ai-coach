@@ -107,6 +107,7 @@
         enabled: true,
         roundHands: mOpt.roundHands || 15,
         blindLevels: levels,
+        payouts: (mOpt.payouts && mOpt.payouts.length) ? mOpt.payouts.slice() : null, // B2 奖金结构（如 [50,30,20]）；null=不启用 ICM
         roundNo: 1,
         handsInRound: 0,
         pendingRoundEnd: false,   // true 表示轮末已结算、等待确认进入下一轮
@@ -1051,6 +1052,23 @@
         showdowns: ost.showdowns || 0
       });
     }
+    // B2 ICM 上下文：比赛 + 奖金结构 + 至少 2 名存活者才提供。
+    // 只传「仍在争夺名次」的存活座位筹码（已淘汰/0 筹码出局者不参与未来名次），
+    // payouts 截到存活人数（缺失名次奖金在 icm.js 内部按 0 处理），meIndex 为座次在存活列表中的位置。
+    var m = this.match;
+    var icmCtx = null;
+    if (m && m.enabled && m.payouts && this.aliveCount() >= 2) {
+      var liveIdx = [];
+      var stacks = [];
+      var i2b;
+      for (i2b = 0; i2b < this.seats.length; i2b++) {
+        if (m.eliminated[i2b] || this.seats[i2b].sittingOut) continue;
+        liveIdx.push(i2b);
+        stacks.push(this.seats[i2b].chips);
+      }
+      var mePos = liveIdx.indexOf(seatIndex);
+      icmCtx = { payouts: m.payouts.slice(0, stacks.length), stacks: stacks, meIndex: Math.max(0, mePos) };
+    }
     return {
       seat: s,
       table: {
@@ -1067,6 +1085,7 @@
           return { id: os2.id, hands: ost2.hands || 0, vpip: ost2.hands ? (ost2.vpip || 0) / ost2.hands : 0, cBetFaced: ost2.cBetFaced || 0, foldToCBet: ost2.foldToCBet || 0 };
         })(agg) : null,
         opponents: opponents,
+        icm: icmCtx,
         raiseCount: this.raiseCount,
         positionFactor: posF,
         // 偷鸡情境：前位无人加注、我在后位 → 可以偷盲

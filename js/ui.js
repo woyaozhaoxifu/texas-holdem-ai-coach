@@ -142,7 +142,7 @@
     var cfg = { seats: seats, smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: initialChips };
     if (matchMode) {
       cfg.autoRebuy = false;   // 比赛：不补筹，出局即淘汰
-      cfg.match = { enabled: true, roundHands: 15, blindLevels: MATCH_BLINDS };
+      cfg.match = { enabled: true, roundHands: 15, blindLevels: MATCH_BLINDS, payouts: [50, 30, 20] };
     }
     App.game = new Poker.Game(cfg);
     App.reviews = [];
