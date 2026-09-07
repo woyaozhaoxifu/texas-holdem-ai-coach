@@ -11,6 +11,7 @@
  *  5. 名次积分：第1/2/3名 +5/+3/+1，淘汰者 0 分，累计正确
  *  6. 只剩 1 人时比赛结束：over=true、matchEnd 事件、冠军为最后幸存者
  *  7. 练习模式（无 match 配置）行为不变
+ *  8. Ante：第 6 轮起每人缴纳 BB×10%（取整到 5）补盲注，淘汰座不交，底池/筹码守恒
  */
 'use strict';
 
@@ -185,6 +186,57 @@ try {
   assert(ev3.matchEnd.champion.id === surv.id, 'matchEnd 冠军 = 最后幸存者');
   assert(sumChips(g) === TOTAL, '终局总筹码守恒（无补筹）');
   assert(g.startHand() === false, '比赛结束后 startHand 恒拒绝');
+
+  console.log('—— Ante（第 6 轮起每人缴纳补盲注）——');
+  var gA = new Game({
+    seats: buildSeats(ids, 200000),
+    smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: 200000,
+    match: { enabled: true, roundHands: 3, blindLevels: [
+      { sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }, { sb: 40, bb: 80 },
+      { sb: 60, bb: 120 }, { sb: 100, bb: 200 }, { sb: 150, bb: 300 }, { sb: 250, bb: 500 },
+      { sb: 400, bb: 800 }, { sb: 600, bb: 1200 }] }
+  });
+  assert(gA.ante === 0 && gA.smallBlind === 10 && gA.bigBlind === 20, '第 1 轮无 Ante，盲注 10/20');
+  var advTo = function (target) {
+    var guardR = 0;
+    while (gA.match.roundNo < target && guardR++ < 20) {
+      for (var hA = 0; hA < gA.match.roundHands; hA++) { if (playHand(gA) === false) return false; }
+      drain(gA);
+      if (gA.startNextRound() === false) return false;
+    }
+    return gA.match.roundNo === target;
+  };
+  assert(advTo(6) === true, '推进到第 6 轮');
+  assert(gA.smallBlind === 100 && gA.bigBlind === 200, '第 6 轮盲注 100/200');
+  assert(gA.ante === 20, '第 6 轮 Ante = 20（BB×10% 向上取整到 5）');
+  // 强制淘汰一名座位（筹码先转给幸存者保持守恒），验证其不再交 Ante
+  var victimA = -1, iB;
+  for (iB = 0; iB < gA.seats.length; iB++) if (!gA.match.eliminated[iB]) { victimA = iB; break; }
+  var donorA = -1, maxC = -1, iC;
+  for (iC = 0; iC < gA.seats.length; iC++) {
+    if (iC !== victimA && !gA.match.eliminated[iC] && gA.seats[iC].chips > maxC) { maxC = gA.seats[iC].chips; donorA = iC; }
+  }
+  gA.seats[donorA].chips += gA.seats[victimA].chips;
+  assert(gA.eliminateSeat(victimA) === true, '第 6 轮前强制淘汰 seat ' + victimA);
+  assert(sumChips(gA) === TOTAL, '强制淘汰后筹码守恒');
+  assert(gA.startHand() !== false, '第 6 轮（Ante）正常开局');
+  var aliveC = 0, anteCollected = 0, iA;
+  for (iA = 0; iA < gA.seats.length; iA++) {
+    if (gA.match.eliminated[iA]) { anteCollected += gA.seats[iA].committed; continue; }
+    aliveC++;
+    if (gA.seats[iA].committed >= gA.ante) anteCollected += gA.ante;
+    else anteCollected += gA.seats[iA].committed;
+  }
+  assert(anteCollected === aliveC * gA.ante, '存活者每人缴纳 Ante，淘汰座不交');
+  assert(gA.potTotal() >= anteCollected + gA.smallBlind + gA.bigBlind, '底池 ≥ Ante 总额 + 大小盲');
+  var guardA = 0;
+  while (!gA.isHandOver && guardA++ < 600) {
+    if (gA.currentActor < 0) { gA.isHandOver = false; break; }
+    var dA = gA.aiDecide(gA.currentActor);
+    gA.act(gA.currentActor, dA.action, dA.raiseTo, dA.reason);
+  }
+  assert(guardA < 600, '第 6 轮含 Ante 本手正常结束（无死循环）');
+  assert(sumChips(gA) === TOTAL, '第 6 轮（含 Ante）筹码守恒');
 
   // 中途退出语义：比赛未结束（自然幸存者尚未产生）时，最终排名按累计积分 desc
   var g4 = new Game({

@@ -82,17 +82,26 @@
     this.playerModel = { hands: 0, vpip: 0, foldToBet: 0, aggression: 0 };
 
     // ---- 比赛模式（轮次制）：match.enabled === true ----
-    // roundHands: 每轮手数；blindLevels: 盲注按轮升级；不补筹，出局即淘汰
+    // roundHands: 每轮手数；blindLevels: 盲注按轮升级 + Ante（第 6 档起）；不补筹，出局即淘汰
     this.match = null;
+    this.ante = 0;   // 每手每人额外缴纳的 Ante（比赛第 6 轮起 > 0；练习模式恒 0）
     if (this.config.match && this.config.match.enabled) {
       var mOpt = this.config.match;
-      var levels = (mOpt.blindLevels && mOpt.blindLevels.length) ? mOpt.blindLevels
+      // Ante 归一化：旧表/自定义表未显式带 ante 时，第 6 档（index≥5）起自动按 BB×10% 向上取整到 5
+      var normLv = function (lv, idx) {
+        var ante = (lv.ante != null) ? lv.ante : (idx >= 5 ? Math.ceil((lv.bb || 20) * 0.10 / 5) * 5 : 0);
+        return { sb: lv.sb, bb: lv.bb, ante: ante };
+      };
+      var rawLevels = (mOpt.blindLevels && mOpt.blindLevels.length) ? mOpt.blindLevels
         : [{ sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }, { sb: 40, bb: 80 },
            { sb: 60, bb: 120 }, { sb: 100, bb: 200 }, { sb: 150, bb: 300 }, { sb: 250, bb: 500 },
            { sb: 400, bb: 800 }, { sb: 600, bb: 1200 }];
-      var lv0 = levels[0] || { sb: 10, bb: 20 };
+      var levels = [];
+      for (var li = 0; li < rawLevels.length; li++) levels.push(normLv(rawLevels[li], li));
+      var lv0 = levels[0] || { sb: 10, bb: 20, ante: 0 };
       this.smallBlind = lv0.sb;
       this.bigBlind = lv0.bb;
+      this.ante = lv0.ante || 0;
       this.config.autoRebuy = false;   // 比赛永不补筹
       var m = {
         enabled: true,
@@ -270,9 +279,14 @@
       }
     }
 
+    // 比赛 Ante：所有存活座位先交 Ante（淘汰/坐出座不交），再收大小盲
+    if (this.match && this.match.enabled && this.ante > 0) {
+      for (var ai3 = 0; ai3 < live.length; ai3++) {
+        this.postAnte(this.seats[live[ai3]], this.ante);
+      }
+    }
     this.postBlind(this.seats[sbIdx], this.smallBlind, 'small');
     this.postBlind(this.seats[bbIdx], this.bigBlind, 'big');
-
     this.currentBet = this.bigBlind;
     this.minRaise = this.bigBlind;
     this.raiseCount = 1;
@@ -294,6 +308,15 @@
     seat.committed += cost;
     if (seat.chips <= 0) seat.allIn = true;
     this.emit('post', { seat: seat.index, amount: cost, kind: kind });
+  };
+
+  /** 缴纳 Ante：只计入 committed 进底池、不计入 bet（跟注仍需补满当前下注额） */
+  Game.prototype.postAnte = function (seat, amount) {
+    var cost = Math.min(amount, seat.chips);
+    seat.chips -= cost;
+    seat.committed += cost;
+    if (seat.chips <= 0) seat.allIn = true;
+    this.emit('post', { seat: seat.index, amount: cost, kind: 'ante' });
   };
 
   /** 从 from 开始找第一个还能行动的座位（跳过已弃牌/全下/出局） */
@@ -803,7 +826,7 @@
     for (i = 0; i < standings.length; i++) if (!standings[i].eliminated) survivors++;
     var leader = standings[0];
     this.emit('roundEnd', {
-      roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind,
+      roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind, ante: this.ante || 0,
       handsPlayed: m.handsInRound,
       standings: standings,
       over: !!over,
@@ -835,8 +858,9 @@
     var lv = m.blindLevels[Math.min(m.roundNo - 1, m.blindLevels.length - 1)];
     this.smallBlind = lv.sb;
     this.bigBlind = lv.bb;
+    this.ante = lv.ante || 0;
     for (var i = 0; i < this.seats.length; i++) m.roundStartChips[i] = this.seats[i].chips;
-    this.emit('roundStart', { roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind });
+    this.emit('roundStart', { roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind, ante: this.ante });
     return true;
   };
 

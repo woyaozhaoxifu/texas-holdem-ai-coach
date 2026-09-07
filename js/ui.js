@@ -34,11 +34,12 @@
     oddsCollapsed: false  // 用户手动折叠
   };
 
-  // 比赛盲注升级表（第 N 轮取第 N 档）
+  // 比赛盲注升级表（第 N 轮取第 N 档；第 6 档起带 Ante = BB×10% 向上取整到 5）
   var MATCH_BLINDS = [
-    { sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }, { sb: 40, bb: 80 },
-    { sb: 60, bb: 120 }, { sb: 100, bb: 200 }, { sb: 150, bb: 300 }, { sb: 250, bb: 500 },
-    { sb: 400, bb: 800 }, { sb: 600, bb: 1200 }
+    { sb: 10, bb: 20, ante: 0 }, { sb: 15, bb: 30, ante: 0 }, { sb: 25, bb: 50, ante: 0 },
+    { sb: 40, bb: 80, ante: 0 }, { sb: 60, bb: 120, ante: 0 }, { sb: 100, bb: 200, ante: 20 },
+    { sb: 150, bb: 300, ante: 30 }, { sb: 250, bb: 500, ante: 50 },
+    { sb: 400, bb: 800, ante: 80 }, { sb: 600, bb: 1200, ante: 120 }
   ];
 
   // ================= 初始化 =================
@@ -180,7 +181,9 @@
   App.syncHeader = function () {
     var g = App.game;
     if (!g) return;
-    el('blinds').textContent = g.smallBlind + ' / ' + g.bigBlind;
+    var blindTxt = g.smallBlind + ' / ' + g.bigBlind;
+    if (g.ante > 0) blindTxt += ' + Ante ' + g.ante;
+    el('blinds').textContent = blindTxt;
     var rt = el('roundTag');
     if (g.match && g.match.enabled) {
       rt.classList.remove('hidden');
@@ -489,8 +492,10 @@
     var elimNames = (g.match.roundBustOrder || []).map(function (i) {
       return g.seats[i] ? g.seats[i].name : '';
     }).filter(function (n) { return n; }).join('、');
-    el('roundSub').textContent = '盲注 ' + g.smallBlind + ' / ' + g.bigBlind + ' · 本轮共 ' +
-      (g.match.handsInRound) + ' 手' + (elimNames ? ' · 出局：' + elimNames : '');
+    var subTxt = '盲注 ' + g.smallBlind + ' / ' + g.bigBlind;
+    if (g.ante > 0) subTxt += ' · Ante ' + g.ante;
+    subTxt += ' · 本轮共 ' + (g.match.handsInRound) + ' 手' + (elimNames ? ' · 出局：' + elimNames : '');
+    el('roundSub').textContent = subTxt;
     var html = standHeaderHtml(false) + standings.map(function (row) { return standRowHtml(row, false); }).join('');
     el('roundBody').innerHTML = html;
     var top = standings[0];
