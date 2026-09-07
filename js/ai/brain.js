@@ -339,11 +339,32 @@
     if (p.id === 'lag') {
       var pressure = p.aggression * 0.45 + (posFactor - 0.5) * 0.4;
       if (!facingBet) {
-        if (rnd() < p.cbetFreq * (0.7 + pressure)) {
-          return mkRaise(rel >= 1.1 ? 'value' : 'bluff',
-            rel >= 1.1 ? '主动开火，我有牌。' : '不管有没有牌，我先打——压力在我这边。');
+        var huFire = nOpp === 1;
+        var firedL = false;
+        var whyL = '';
+        if (street === 'flop') {
+          // 翻牌：维持高频 c-bet（松凶的核心施压点，即使空气也常开火）
+          if (rnd() < p.cbetFreq * (0.7 + pressure)) {
+            firedL = true;
+            whyL = rel >= 1.1 ? '主动开火，我有牌。' : '不管有没有牌，我先打——压力在我这边。';
+          } else if (medium && canRaise) {
+            return mkRaise('value', '下注拿价值。');
+          }
+        } else {
+          // 转牌 / 河牌：收敛纯空气三连开 —— 有牌/听牌才继续压；单挑才偶尔偷一枪
+          if (medium || hasDraw || rel >= 1.1) {
+            if (rnd() < p.cbetFreq * (0.55 + pressure * 0.6)) {
+              firedL = true;
+              whyL = hasDraw && !medium ? ('我有' + drawName + '，半诈唬继续压。') : '转河有牌就继续打，不给你免费看。';
+            }
+          } else if (huFire && rnd() < p.bluffFreq * 0.5) {
+            firedL = true;
+            whyL = '单挑就偷你一枪。';
+          }
         }
-        if (medium && canRaise) return mkRaise('value', '下注拿价值。');
+        if (firedL) {
+          return mkRaise(rel >= 1.1 ? 'value' : 'bluff', whyL);
+        }
         return mk('check', 0, 0, eq, '这回先过牌，下一枪再说。');
       }
       if (raiseCount >= 1 && rnd() < p.threeBetFreq * 1.5 && canRaise && (rel >= 1.1 || rnd() < p.bluffFreq)) {
