@@ -17,3 +17,10 @@ Thumbs.db
 
 # 依赖
 node_modules/
+
+# 本机启动器（桌面壳 / 手机访问：本地产物，不入库）
+launcher/
+start_desktop.bat
+start_phone.bat
+.venv/
+server.pid
