@@ -675,6 +675,42 @@
     ais.slice(half).forEach(function (i) { bottom.appendChild(App.seatEl(g.seats[i])); });
   };
 
+  // ================= 对手 HUD（C2）=================
+  /** 由座位客观统计派生 HUD 显示值；hands<5 / 分母 0 → '–' */
+  App.hudData = function (s) {
+    var st = s && s.stats;
+    if (!st) return null;
+    var hands = st.hands || 0;
+    var dash = '–';
+    var vpipTxt = dash, pfrTxt = dash, f2cTxt = dash;
+    if (hands >= 5) {
+      vpipTxt = Math.round((st.vpip || 0) / hands * 100) + '%';
+      pfrTxt = Math.round((st.pfr || 0) / hands * 100) + '%';
+      if ((st.cBetFaced || 0) > 0) f2cTxt = Math.round((st.foldToCBet || 0) / st.cBetFaced * 100) + '%';
+    }
+    return {
+      hands: hands,
+      vpip: vpipTxt,
+      pfr: pfrTxt,
+      f2c: f2cTxt,
+      tooltip: '手数 ' + hands +
+        '｜入池 ' + vpipTxt +
+        '｜翻前加注 ' + pfrTxt +
+        '｜3bet ' + (st.threeBet || 0) + ' 次' +
+        '｜面对c-bet弃牌 ' + f2cTxt +
+        '｜摊牌 ' + (st.showdowns || 0) + ' 次'
+    };
+  };
+
+  /** HUD 徽标 HTML（两格：入池 / 翻前加注；完整统计放 title 悬浮） */
+  App.hudBadgeHtml = function (hud) {
+    if (!hud) return '';
+    return '<div class="hud-mini" title="' + esc(hud.tooltip) + '">' +
+      '<span>入池 ' + esc(hud.vpip) + '</span>' +
+      '<span>加注 ' + esc(hud.pfr) + '</span>' +
+      '</div>';
+  };
+
   App.seatEl = function (s) {
     var g = App.game;
     var div = document.createElement('div');
@@ -690,6 +726,9 @@
     else if (s.mood >= 25) moodCls = 'good';
     var moodTxt = p ? (Personalities.moodEmoji(s.mood) + ' ' + (s.moodLabel || '平静')) : '';
 
+    // C2 迷你 HUD：对手客观数据徽标（仅 bot；hands<5 显示 –）
+    var hud = (p && !s.isHuman) ? App.hudData(s) : null;
+
     var html = '<div class="seat-top">' +
       '<span class="avatar">' + (s.avatar || (s.isHuman ? '🙂' : '🤖')) + '</span>' +
       '<div style="min-width:0">' +
@@ -699,6 +738,7 @@
       '</div></div>' +
       '<div class="seat-line"><span class="chips">¥' + s.chips + '</span>' +
       (moodTxt ? '<span class="mood ' + moodCls + '">' + moodTxt + '</span>' : '') + '</div>' +
+      (hud ? App.hudBadgeHtml(hud) : '') +
       '<div class="hole"></div>';
 
     if (s.folded && !s.isHuman) {
