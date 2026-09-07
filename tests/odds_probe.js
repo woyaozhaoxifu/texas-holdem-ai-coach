@@ -143,6 +143,13 @@
     ok(Equity.describeHole([{ r: 9, s: 0 }, { r: 9, s: 2 }]) === '对子 9', '对子');
     ok(Equity.describeHole([{ r: 14, s: 0 }, { r: 13, s: 0 }]).indexOf('同花连张') >= 0, '同花连张');
     ok(Equity.describeHole([{ r: 12, s: 1 }, { r: 11, s: 1 }]).indexOf('连张') >= 0, '连张');
+    // P2-2：Broadway 非对子应归为「两高张」，不再是间隔连牌
+    ok(Equity.describeHole([{ r: 14, s: 0 }, { r: 11, s: 2 }]) === '两高张 AJ', 'AJ → 两高张');
+    ok(Equity.describeHole([{ r: 14, s: 0 }, { r: 12, s: 2 }]) === '两高张 AQ', 'AQ → 两高张');
+    ok(Equity.describeHole([{ r: 13, s: 0 }, { r: 11, s: 2 }]) === '两高张 KJ', 'KJ → 两高张');
+    ok(Equity.describeHole([{ r: 9, s: 0 }, { r: 8, s: 0 }]) === '同花连张 98', '98s → 同花连张');
+    ok(Equity.describeHole([{ r: 7, s: 0 }, { r: 7, s: 2 }]) === '对子 7', '77 → 对子');
+    ok(Equity.describeHole([{ r: 14, s: 0 }, { r: 12, s: 0 }]) === '同花高张 AQ', 'AQs → 同花高张');
   })();
 
   console.log('');

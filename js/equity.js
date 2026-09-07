@@ -273,13 +273,12 @@
     var gap = hi - lo;
     var tag;
     if (hi === lo) tag = '对子 ' + RANK_L[hi];
-    else if (suited && gap <= 1) tag = '同花连张';
-    else if (suited && gap <= 3) tag = '同花（间隔小）';
-    else if (suited) tag = '同花高张';
-    else if (gap <= 1) tag = '连张';
-    else if (gap <= 3) tag = '间隔连牌';
+    else if (gap <= 1) tag = suited ? '同花连张' : '连张';
+    else if (suited) tag = (lo >= 11) ? '同花高张' : '同花';
     else if (lo >= 11) tag = '两高张';
-    else if (hi >= 14 && lo >= 8) tag = 'A 带大牌';
+    else if (hi === 14 && lo >= 8) tag = 'A 带大牌';
+    else if (hi >= 12 && lo >= 9) tag = '高张';
+    else if (gap <= 3) tag = '间隔牌';
     else tag = '散牌';
     if (hi === lo) return tag;
     return tag + ' ' + RANK_L[hi] + RANK_L[lo];

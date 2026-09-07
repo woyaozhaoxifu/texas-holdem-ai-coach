@@ -704,6 +704,14 @@ body {
 .odds-body { padding: 0 20px 12px; line-height: 1.75; max-height: 300px; overflow-y: auto; }
 .odds-eq { font-size: 15px; }
 .odds-eq b { color: var(--cyan); font-size: 18px; font-variant-numeric: tabular-nums; }
+.od-now {
+  margin-left: 6px; font-size: 11px; font-weight: 600; opacity: .85;
+  color: var(--amber);
+  border: 1px solid rgba(255,174,58,.35);
+  background: rgba(255,174,58,.08);
+  padding: 0 7px; border-radius: 999px; vertical-align: 2px;
+  letter-spacing: .5px; white-space: nowrap;
+}
 .od-approx { color: var(--amber); font-weight: 800; }
 .odds-lose-h { margin-top: 7px; color: var(--text); font-weight: 800; font-size: 13.5px; }
 .odds-beats { margin: 4px 0 2px; display: flex; flex-wrap: wrap; gap: 5px; }

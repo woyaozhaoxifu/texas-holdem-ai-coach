@@ -350,10 +350,14 @@
   App.oddsHtml = function (d) {
     var html = '';
     var eqTxt = pct(d.equity1);
+    // flop/turn 的大数字是「按当前牌面」的成牌胜率（非打到河牌的真实胜率），加小标签区分口径
+    var nowLabel = (!d.preflop && d.street !== 'river')
+      ? '<span class="od-now" title="按当前已发公共牌比大小，不含后续街反超">当前牌面</span>'
+      : '';
     var nLine = d.numOpponents > 1
       ? '　vs ' + d.numOpponents + ' 人 <span class="od-approx">≈ ' + pct(d.equityN) + '%</span>'
       : '';
-    html += '<div class="odds-eq">vs 1 个随机对手 <b>' + eqTxt + '%</b>' + nLine + '</div>';
+    html += '<div class="odds-eq">vs 1 个随机对手 <b>' + eqTxt + '%</b>' + nowLabel + nLine + '</div>';
 
     if (d.preflop) {
       html += '<div class="odds-hole">我的起手牌：<b>' + esc(d.holeDesc) + '</b></div>' +
@@ -378,9 +382,10 @@
     }
     html += '<div class="odds-tie">平局 <b>' + pct(d.tiePct) + '%</b>　含平局折半我赢 <b>' + eqTxt + '%</b>　（我当前成牌：' + esc(d.myMadeName) + '）</div>';
 
+    var later = d.street === 'turn' ? '河牌仍可能反超我' : '转牌、河牌仍可能反超我';
     var how = d.street === 'river'
       ? '怎么算的：把每张没看到的牌两两发给 1 个对手，与公共牌凑成 7 张比大小：我赢的次数 + 平局一半 ÷ ' + d.total + ' 种组合 = 单挑胜率（河牌已发完，精确无误）。'
-      : '怎么算的：把每张没看到的牌两两当作对手底牌，与当前公共牌凑牌比大小：我赢的次数 + 平局一半 ÷ ' + d.total + ' 种组合 = 当前牌面胜率。转牌/河牌对手还可能反超我，真实胜率请看上方的教学提示条。';
+      : '怎么算的：把每张没看到的牌两两当作对手底牌，与当前公共牌凑牌比大小：我赢的次数 + 平局一半 ÷ ' + d.total + ' 种组合 = 当前牌面胜率。' + later + '，真实到河牌胜率请参考左侧「教学提示」。';
     html += '<div class="odds-how">' + how + '</div>';
     return html;
   };
