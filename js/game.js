@@ -54,6 +54,7 @@
         moodLabel: '平静',
         moodEvent: '',
         relations: {},   // { 对手id: 关系值 } 负=记恨，正=觉得好欺负
+        eliminated: false, // 比赛模式下：筹码归零被淘汰
         lastAction: '',
         lastReason: '',
         stats: { hands: 0, vpip: 0, pfr: 0, folds: 0, calls: 0, raises: 0, showdowns: 0, wins: 0, facedBet: 0, foldsToBet: 0 }
@@ -79,6 +80,46 @@
     this.events = [];
     // 人类玩家模型（供 Boss 读牌 + HUD）
     this.playerModel = { hands: 0, vpip: 0, foldToBet: 0, aggression: 0 };
+
+    // ---- 比赛模式（轮次制）：match.enabled === true ----
+    // roundHands: 每轮手数；blindLevels: 盲注按轮升级；不补筹，出局即淘汰
+    this.match = null;
+    if (this.config.match && this.config.match.enabled) {
+      var mOpt = this.config.match;
+      var levels = (mOpt.blindLevels && mOpt.blindLevels.length) ? mOpt.blindLevels
+        : [{ sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }, { sb: 40, bb: 80 },
+           { sb: 60, bb: 120 }, { sb: 100, bb: 200 }, { sb: 150, bb: 300 }, { sb: 250, bb: 500 },
+           { sb: 400, bb: 800 }, { sb: 600, bb: 1200 }];
+      var lv0 = levels[0] || { sb: 10, bb: 20 };
+      this.smallBlind = lv0.sb;
+      this.bigBlind = lv0.bb;
+      this.config.autoRebuy = false;   // 比赛永不补筹
+      var m = {
+        enabled: true,
+        roundHands: mOpt.roundHands || 15,
+        blindLevels: levels,
+        roundNo: 1,
+        handsInRound: 0,
+        pendingRoundEnd: false,   // true 表示轮末已结算、等待确认进入下一轮
+        over: false,              // true 表示比赛结束（只剩 1 人）
+        points: [],               // 累计积分（按座位）
+        roundPts: [],             // 本轮积分（按座位）
+        roundStartChips: [],      // 本轮开始时筹码快照（用于 delta）
+        roundBustOrder: [],       // 本轮内出局顺序
+        bustOrder: [],            // 全比赛出局顺序
+        bustRound: [],            // 每个座位出局时的轮次（0=未出局）
+        eliminated: [],           // 每个座位是否已淘汰
+        lastStandings: null
+      };
+      for (var mi = 0; mi < this.seats.length; mi++) {
+        m.roundStartChips[mi] = this.seats[mi].chips;
+        m.points[mi] = 0;
+        m.roundPts[mi] = 0;
+        m.bustRound[mi] = 0;
+        m.eliminated[mi] = false;
+      }
+      this.match = m;
+    }
   }
 
   Game.prototype.emit = function (type, data) {
@@ -136,6 +177,12 @@
 
   // ============ 开始一手牌 ============
   Game.prototype.startHand = function () {
+    // 比赛模式：轮末等待确认 / 已结束 / 只剩 1 人 → 拒绝开局（返回 false）
+    if (this.match && this.match.enabled) {
+      if (this.match.over) return false;
+      if (this.match.pendingRoundEnd) return false;
+      if (this.aliveCount() <= 1) { this.finishRound(true); return false; }
+    }
     this.handNo++;
     this.isHandOver = false;
     this.board = [];
@@ -194,8 +241,24 @@
     }
 
     var n = this.seats.length;
-    var sbIdx = n > 2 ? (this.button + 1) % n : this.button;
-    var bbIdx = n > 2 ? (this.button + 2) % n : (this.button + 1) % n;
+    var sbIdx, bbIdx;
+    if (this.match && this.match.enabled) {
+      // 比赛模式：盲注只落在存活者上（跳过已淘汰座位）；剩 2 人按 heads-up 处理
+      var aliveM = [];
+      for (var ai = 0; ai < n; ai++) if (!this.seats[ai].sittingOut) aliveM.push(ai);
+      var nxtAlive = function (from) {
+        for (var k2 = 1; k2 <= n; k2++) {
+          var ii = (from + k2) % n;
+          if (aliveM.indexOf(ii) >= 0) return ii;
+        }
+        return from;
+      };
+      if (aliveM.length === 2) { sbIdx = this.button; bbIdx = nxtAlive(this.button); }
+      else { sbIdx = nxtAlive(this.button); bbIdx = nxtAlive(sbIdx); }
+    } else {
+      sbIdx = n > 2 ? (this.button + 1) % n : this.button;
+      bbIdx = n > 2 ? (this.button + 2) % n : (this.button + 1) % n;
+    }
 
     this.deck = Cards.shuffle(Cards.buildDeck(), this.rng);
     var live = [];
@@ -624,6 +687,155 @@
     this.isHandOver = true;
     this.currentActor = -1;
     this.emit('handEnd', result);
+    this.afterHandSettle();   // 比赛模式：结算淘汰 / 轮末 / 终局
+  };
+
+  // ============ 比赛模式（轮次制）辅助 ============
+  /** 当前存活人数（未淘汰） */
+  Game.prototype.aliveCount = function () {
+    var n = 0;
+    for (var i = 0; i < this.seats.length; i++) {
+      var s = this.seats[i];
+      if (this.match && this.match.enabled) { if (!this.match.eliminated[i]) n++; }
+      else if (s.chips > 0 && !s.sittingOut) n++;
+    }
+    return n;
+  };
+
+  /** 把某座位标记为淘汰（幂等）。真实对局在结算时自动调用；也可供测试/管理调用。 */
+  Game.prototype.eliminateSeat = function (seatIndex) {
+    var m = this.match, s = this.seats[seatIndex];
+    if (!m || !m.enabled || !s || m.eliminated[seatIndex]) return false;
+    s.chips = 0;
+    m.eliminated[seatIndex] = true;
+    s.eliminated = true;
+    s.sittingOut = true;
+    s.folded = true;
+    m.bustOrder.push(seatIndex);
+    m.bustRound[seatIndex] = m.roundNo;
+    if (m.roundBustOrder.indexOf(seatIndex) < 0) m.roundBustOrder.push(seatIndex);
+    this.emit('eliminate', { seat: seatIndex, name: s.name, roundNo: m.roundNo });
+    return true;
+  };
+
+  /** 一手牌结算后的比赛推进：淘汰归零座位 → 手数累计 → 轮末/终局判定 */
+  Game.prototype.afterHandSettle = function () {
+    var m = this.match;
+    if (!m || !m.enabled || m.over) return;
+    for (var i = 0; i < this.seats.length; i++) {
+      var s = this.seats[i];
+      if (!m.eliminated[i] && s.chips <= 0) this.eliminateSeat(i);
+    }
+    m.handsInRound++;
+    if (this.aliveCount() <= 1) this.finishRound(true);
+    else if (m.handsInRound >= m.roundHands) this.finishRound(false);
+  };
+
+  /**
+   * 生成本轮结算榜单（按筹码排序），并结算名次积分：第1名+5 / 第2名+3 / 第3名+1。
+   * 淘汰者按出局先后排底、记 0 分。调用前须保证 match 存在。
+   */
+  Game.prototype.computeRoundStandings = function () {
+    var m = this.match;
+    var arr = [], i;
+    for (i = 0; i < this.seats.length; i++) {
+      var s = this.seats[i];
+      arr.push({
+        seatIndex: i, id: s.id, name: s.name, avatar: s.avatar || '', isHuman: s.isHuman,
+        personality: s.personality ? s.personality.id : '',
+        chips: s.chips, eliminated: !!m.eliminated[i],
+        bustOrder: m.eliminated[i] ? m.bustOrder.indexOf(i) : -1,
+        roundDelta: s.chips - (m.roundStartChips[i] || 0),
+        roundPts: 0, totalPts: m.points[i] || 0
+      });
+    }
+    arr.sort(function (a, b) {
+      if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;   // 存活在前
+      if (!a.eliminated) return (b.chips - a.chips) || (a.seatIndex - b.seatIndex);
+      return b.bustOrder - a.bustOrder;                                  // 越晚出局排越高
+    });
+    var award = [5, 3, 1];
+    for (var k = 0; k < arr.length; k++) {
+      arr[k].rank = k + 1;
+      if (!arr[k].eliminated && k < 3) arr[k].roundPts = award[k];
+      arr[k].totalPts = (arr[k].totalPts || 0) + arr[k].roundPts;
+      m.points[arr[k].seatIndex] = arr[k].totalPts;
+      m.roundPts[arr[k].seatIndex] = arr[k].roundPts;
+    }
+    return arr;
+  };
+
+  /** 最终排名：按累计积分降序，同分按筹码降序、再按座位号 */
+  Game.prototype.finalStandings = function () {
+    var m = this.match;
+    var arr = [], i;
+    for (i = 0; i < this.seats.length; i++) {
+      var s = this.seats[i];
+      arr.push({
+        seatIndex: i, id: s.id, name: s.name, avatar: s.avatar || '', isHuman: s.isHuman,
+        personality: s.personality ? s.personality.id : '',
+        chips: s.chips, eliminated: m ? !!m.eliminated[i] : !!s.eliminated,
+        roundPts: m ? (m.roundPts[i] || 0) : 0,
+        totalPts: m ? (m.points[i] || 0) : 0
+      });
+    }
+    arr.sort(function (a, b) {
+      if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts;
+      if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
+      return (b.chips - a.chips) || (a.seatIndex - b.seatIndex);
+    });
+    for (var k = 0; k < arr.length; k++) arr[k].rank = k + 1;
+    return arr;
+  };
+
+  /**
+   * 轮末结算（自然轮满或终局）。over=true 时比赛结束。
+   * @return {Array} standings
+   */
+  Game.prototype.finishRound = function (over) {
+    var m = this.match;
+    var standings = this.computeRoundStandings();
+    m.lastStandings = standings;
+    m.pendingRoundEnd = true;
+    var survivors = 0, i;
+    for (i = 0; i < standings.length; i++) if (!standings[i].eliminated) survivors++;
+    var leader = standings[0];
+    this.emit('roundEnd', {
+      roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind,
+      handsPlayed: m.handsInRound,
+      standings: standings,
+      over: !!over,
+      eliminated: m.roundBustOrder.slice(),
+      leader: { id: leader.id, name: leader.name, avatar: leader.avatar, chips: leader.chips },
+      survivors: survivors
+    });
+    if (over) {
+      m.over = true;
+      var fin = this.finalStandings();
+      var champ = fin[0];
+      this.emit('matchEnd', {
+        roundNo: m.roundNo,
+        standings: fin,
+        champion: { id: champ.id, name: champ.name, avatar: champ.avatar, totalPts: champ.totalPts, chips: champ.chips, eliminated: champ.eliminated }
+      });
+    }
+    return standings;
+  };
+
+  /** 开始下一轮（轮末确认后调用）：轮次+1、盲注升级、手数清零。 */
+  Game.prototype.startNextRound = function () {
+    var m = this.match;
+    if (!m || !m.enabled || m.over || !m.pendingRoundEnd) return false;
+    m.roundNo++;
+    m.handsInRound = 0;
+    m.pendingRoundEnd = false;
+    m.roundBustOrder = [];
+    var lv = m.blindLevels[Math.min(m.roundNo - 1, m.blindLevels.length - 1)];
+    this.smallBlind = lv.sb;
+    this.bigBlind = lv.bb;
+    for (var i = 0; i < this.seats.length; i++) m.roundStartChips[i] = this.seats[i].chips;
+    this.emit('roundStart', { roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind });
+    return true;
   };
 
   /**

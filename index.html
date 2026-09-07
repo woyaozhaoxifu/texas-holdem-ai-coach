@@ -10,7 +10,7 @@
 
 <header class="topbar" data-page-node-id="yJCQDlKScivPHgKFplYlQq">
   <div class="brand" data-page-node-id="sudxZCb3DPzBtPdKXmAZNZ">德州扑克 AI 对战<span class="sub" data-page-node-id="trKAEpDFz9wCkEMKqyG3Wc">教学 · 复盘</span></div>
-  <div class="hand-info" data-page-node-id="BR4bh8UA305RUAs07ZILK3">第 <b id="handNo" data-page-node-id="Uox4NkeXnmookYF6ACZcOH">0</b> 手　盲注 <b id="blinds" data-page-node-id="mlhzceMH8vMfIZZdXqKlJx">10 / 20</b>　你的筹码 <b id="myChips" data-page-node-id="C8CmvK6kGKQCAt9UthhWcz">2000</b></div>
+  <div class="hand-info" data-page-node-id="BR4bh8UA305RUAs07ZILK3"><span id="roundTag" class="round-chip hidden" data-page-node-id="rt1"></span><span>第 <b id="handNo" data-page-node-id="Uox4NkeXnmookYF6ACZcOH">0</b> 手</span>　盲注 <b id="blinds" data-page-node-id="mlhzceMH8vMfIZZdXqKlJx">10 / 20</b>　你的筹码 <b id="myChips" data-page-node-id="C8CmvK6kGKQCAt9UthhWcz">2000</b></div>
   <div class="top-actions" data-page-node-id="RoscmftCEZMgbkT6KK70Re">
     <label class="switch" data-page-node-id="cpXbnVO4k9guXpLsTxxuhC"><input type="checkbox" id="chkCoach" checked data-page-node-id="vrZDFStGuK4G3u7BrsApCn"> 教学提示</label>
     <button class="btn ghost" id="btnSetup" data-page-node-id="rfFAr63SQUJtPlZaAVflwD">选桌</button>
@@ -75,7 +75,10 @@
     <div class="pers-grid" id="persGrid" data-page-node-id="fAdHtBTKCZBelXqPCNOiiW"></div>
     <div class="modal-foot" data-page-node-id="z5TmoO5dCTwkFnFGnbXv8e">
       <span id="setupHint" data-page-node-id="qtNpes8thN3NkF87HcXoCl">已选 0 / 5</span>
-      <button class="btn primary" id="btnStartTable" data-page-node-id="5KcKR6NAJwu3fJerFBALYX">开始牌局</button>
+      <span class="setup-actions" data-page-node-id="sa1">
+        <button class="btn ghost" id="btnStartTable" data-page-node-id="5KcKR6NAJwu3fJerFBALYX">练习（无限手）</button>
+        <button class="btn primary" id="btnStartMatch" data-page-node-id="sm1">🏆 比赛 · 每轮 15 手</button>
+      </span>
     </div>
   </div>
 </div>
@@ -110,6 +113,34 @@
     <div class="modal-head" data-page-node-id="4rQIlZP3h0VObpPPsgLOnn"><h2 data-page-node-id="BkhSfp4KwYZyxTgHtqBbXB">学习档案</h2><button class="close" data-close="modalStats" data-page-node-id="8eFJIPtdG1F3ZBZSrCoa7a">×</button></div>
     <div class="stats-body" id="statsBody" data-page-node-id="fm4X6Vvz3qYrjGP1vzw30O"></div>
     <div class="modal-foot" data-page-node-id="xhyX2yn9CBjnDGzSHmsmMd"><button class="btn ghost" id="btnClearStats" data-page-node-id="mv4TJlGCV0YSoNVXoSKd9l">清空档案</button></div>
+  </div>
+</div>
+
+<!-- 轮次结算 -->
+<div class="modal hidden" id="modalRound" data-page-node-id="mrd1">
+  <div class="modal-box wide" data-page-node-id="mrd2">
+    <div class="modal-head" data-page-node-id="mrd3">
+      <h2>🏆 第 <span id="rRoundNo">1</span> 轮结算</h2>
+      <div class="round-sub" id="roundSub"></div>
+      <button class="close" data-close="modalRound" data-page-node-id="mrd4">×</button>
+    </div>
+    <div class="round-body" id="roundBody" data-page-node-id="mrd5"></div>
+    <div class="modal-foot" data-page-node-id="mrd6">
+      <div class="round-leader" id="roundLeader" data-page-node-id="mrd7"></div>
+      <span class="setup-actions" data-page-node-id="mrd8">
+        <button class="btn ghost" id="btnMatchQuit" data-page-node-id="mrd9">结束比赛</button>
+        <button class="btn primary" id="btnNextRound" data-page-node-id="mrd10">开始下一轮</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- 最终排名 -->
+<div class="modal hidden" id="modalFinal" data-page-node-id="fin1">
+  <div class="modal-box" data-page-node-id="fin2">
+    <div class="modal-head" data-page-node-id="fin3"><h2>🏁 比赛结束 · 最终排名</h2><button class="close" data-close="modalFinal" data-page-node-id="fin4">×</button></div>
+    <div class="stats-body" id="finalBody" data-page-node-id="fin5"></div>
+    <div class="modal-foot" data-page-node-id="fin6"><button class="btn primary" id="btnBackLobby" data-page-node-id="fin7">返回选桌</button></div>
   </div>
 </div>
 

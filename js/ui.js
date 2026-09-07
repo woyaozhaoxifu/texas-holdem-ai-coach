@@ -20,6 +20,7 @@
 
   var App = {
     game: null,
+    mode: 'practice',   // 'practice' | 'match'
     reviews: [],
     rvIdx: 0,
     busy: false,
@@ -29,6 +30,13 @@
     aiTimer: null,
     bubbleTimer: null
   };
+
+  // 比赛盲注升级表（第 N 轮取第 N 档）
+  var MATCH_BLINDS = [
+    { sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }, { sb: 40, bb: 80 },
+    { sb: 60, bb: 120 }, { sb: 100, bb: 200 }, { sb: 150, bb: 300 }, { sb: 250, bb: 500 },
+    { sb: 400, bb: 800 }, { sb: 600, bb: 1200 }
+  ];
 
   // ================= 初始化 =================
   App.init = function () {
@@ -41,7 +49,16 @@
 
     var closers = document.querySelectorAll('[data-close]');
     for (var i = 0; i < closers.length; i++) {
-      closers[i].onclick = function () { el(this.getAttribute('data-close')).classList.add('hidden'); };
+      closers[i].onclick = function () {
+        var tid = this.getAttribute('data-close');
+        var g = App.game;
+        // 轮次结算弹窗在等待玩家选择下一轮/结束前不允许直接关掉（否则牌局会卡住）
+        if (tid === 'modalRound' && g && g.match && g.match.enabled && g.match.pendingRoundEnd && !g.match.over) {
+          App.toast('轮次结算中：请点击「开始下一轮」或「结束比赛」');
+          return;
+        }
+        el(tid).classList.add('hidden');
+      };
     }
 
     el('btnFold').onclick = function () { App.playerAct('fold'); };
@@ -62,6 +79,10 @@
       App.saveStats(); App.openStats();
     };
     el('btnStartTable').onclick = function () { App.startTable(App.selected); };
+    el('btnStartMatch').onclick = function () { App.startTable(App.selected, 'match'); };
+    el('btnNextRound').onclick = function () { App.nextRound(); };
+    el('btnMatchQuit').onclick = function () { App.showFinal(); };
+    el('btnBackLobby').onclick = function () { App.backLobby(); };
 
     App.openSetup();
   };
@@ -90,37 +111,74 @@
       grid.appendChild(c);
     });
     el('setupHint').textContent = '已选 ' + App.selected.length + ' / 5';
-    el('btnStartTable').disabled = App.selected.length !== 5;
+    var ready = App.selected.length === 5;
+    el('btnStartTable').disabled = !ready;
+    el('btnStartMatch').disabled = !ready;
     el('modalSetup').classList.remove('hidden');
   };
 
-  App.startTable = function (ids) {
+  App.startTable = function (ids, mode) {
+    mode = mode || 'practice';
+    App.mode = mode;
     el('modalSetup').classList.add('hidden');
-    var seats = [{ id: 'you', name: '你', isHuman: true, chips: 2000 }];
+    var matchMode = mode === 'match';
+    var initialChips = 2000;
+    var seats = [{ id: 'you', name: '你', isHuman: true, chips: initialChips }];
     ids.forEach(function (id) {
       var p = Personalities.get(id);
-      seats.push({ id: id, name: p.name, avatar: p.avatar, personality: id, chips: 2000 });
+      seats.push({ id: id, name: p.name, avatar: p.avatar, personality: id, chips: initialChips });
     });
-    App.game = new Poker.Game({
-      seats: seats, smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: 2000
-    });
+    var cfg = { seats: seats, smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: initialChips };
+    if (matchMode) {
+      cfg.autoRebuy = false;   // 比赛：不补筹，出局即淘汰
+      cfg.match = { enabled: true, roundHands: 15, blindLevels: MATCH_BLINDS };
+    }
+    App.game = new Poker.Game(cfg);
     App.reviews = [];
     App.revealAll = false;
+    App.busy = false;
     el('log').innerHTML = '';
-    el('blinds').textContent = '10 / 20';
-    App.log('牌局开始：你 vs ' + ids.map(function (i) { return Personalities.get(i).name; }).join('、'));
+    App.syncHeader();
+    var foes = ids.map(function (i) { return Personalities.get(i).name; }).join('、');
+    App.log('牌局开始：你 vs ' + foes + (matchMode ? '（比赛模式 · 每轮 15 手 · 盲注升级 · 无补筹）' : '（练习模式 · 无限手）'));
     App.nextHand();
   };
 
   App.nextHand = function () {
     if (!App.game) return;
+    var g = App.game;
+    if (g.match && g.match.enabled) {
+      if (g.match.over) { App.showFinal(); return; }
+      if (g.match.pendingRoundEnd) { App.showRoundResult(); return; }
+    }
     App.revealAll = false;
     el('btnNext').classList.add('hidden');
-    App.game.startHand();
-    el('handNo').textContent = App.game.handNo;
-    App.log('—— 第 ' + App.game.handNo + ' 手 ——', 'hl');
+    var ok = g.startHand();
+    if (ok === false) {
+      if (g.match && g.match.over) App.showFinal();
+      else if (g.match && g.match.pendingRoundEnd) App.showRoundResult();
+      return;
+    }
+    el('handNo').textContent = g.handNo;
+    App.syncHeader();
+    App.log('—— 第 ' + g.handNo + ' 手 ——', 'hl');
     App.render();
     App.loop();
+  };
+
+  /** 顶栏：盲注 + 比赛轮次标识 */
+  App.syncHeader = function () {
+    var g = App.game;
+    if (!g) return;
+    el('blinds').textContent = g.smallBlind + ' / ' + g.bigBlind;
+    var rt = el('roundTag');
+    if (g.match && g.match.enabled) {
+      rt.classList.remove('hidden');
+      rt.innerHTML = '第 ' + g.match.roundNo + ' 轮' +
+        '<span class="rc-pts">积分 ' + (g.match.points[g.playerIndex] || 0) + '</span>';
+    } else {
+      rt.classList.add('hidden');
+    }
   };
 
   // ================= 主循环 =================
@@ -288,20 +346,148 @@
 
       var d = result.playerDelta;
       App.log('本手盈亏：' + (d > 0 ? '+' : '') + d + ' ｜ ' + esc(review.summary), d > 0 ? 'act-win' : '');
-
-      var me = g.seats[g.playerIndex];
-      if (me.chips <= 0) {
-        App.log('你的筹码已耗尽，牌局结束。可以重新选桌再来一局。', 'hl');
-        el('btnNext').textContent = '重新开局';
-        el('btnNext').onclick = function () { App.openSetup(); };
-      } else {
-        el('btnNext').textContent = '下一手';
-        el('btnNext').onclick = function () { App.nextHand(); };
-      }
-      el('btnNext').classList.remove('hidden');
-      setTimeout(function () { App.showReview(App.rvIdx); }, 900);
     }
+
+    var inMatch = !!(g.match && g.match.enabled);
+    if (inMatch) {
+      App.syncHeader();
+      if (g.match.over) { App.showFinal(); return; }          // 比赛结束 → 最终排名
+      if (g.match.pendingRoundEnd) { App.showRoundResult(); return; } // 轮满 → 轮次结算
+      var meM = g.seats[g.playerIndex];
+      if (meM.chips <= 0) App.log('你已被淘汰，接下来以旁观视角继续比赛。', 'hl');
+      el('btnNext').textContent = '下一手';
+      el('btnNext').onclick = function () { App.nextHand(); };
+      el('btnNext').classList.remove('hidden');
+      setTimeout(function () { if (App.rvIdx >= 0) App.showReview(App.rvIdx); }, 900);
+      return;
+    }
+
+    // ---- 练习模式（原逻辑不变）----
+    var me = g.seats[g.playerIndex];
+    if (me.chips <= 0) {
+      App.log('你的筹码已耗尽，牌局结束。可以重新选桌再来一局。', 'hl');
+      el('btnNext').textContent = '重新开局';
+      el('btnNext').onclick = function () { App.openSetup(); };
+    } else {
+      el('btnNext').textContent = '下一手';
+      el('btnNext').onclick = function () { App.nextHand(); };
+    }
+    el('btnNext').classList.remove('hidden');
+    setTimeout(function () { App.showReview(App.rvIdx); }, 900);
   };
+
+  // ================= 比赛模式（轮次结算 / 最终排名）=================
+  /** 轮末结算弹窗 */
+  App.showRoundResult = function () {
+    var g = App.game;
+    if (!g || !g.match) return;
+    var standings = g.match.lastStandings || g.finalStandings();
+    el('rRoundNo').textContent = g.match.roundNo;
+    var elimNames = (g.match.roundBustOrder || []).map(function (i) {
+      return g.seats[i] ? g.seats[i].name : '';
+    }).filter(function (n) { return n; }).join('、');
+    el('roundSub').textContent = '盲注 ' + g.smallBlind + ' / ' + g.bigBlind + ' · 本轮共 ' +
+      (g.match.handsInRound) + ' 手' + (elimNames ? ' · 出局：' + elimNames : '');
+    var html = standHeaderHtml(false) + standings.map(function (row) { return standRowHtml(row, false); }).join('');
+    el('roundBody').innerHTML = html;
+    var top = standings[0];
+    el('roundLeader').innerHTML = top && !top.eliminated
+      ? '本轮领先：<b>' + esc(top.name) + '</b>　筹码 ¥' + top.chips
+      : '';
+    // 只剩 1 人时不应走轮次弹窗（会直接进最终排名），此处保险起见
+    var quit = el('btnMatchQuit'), nxt = el('btnNextRound');
+    if (g.match.over) {
+      quit.style.display = 'none'; nxt.style.display = 'none';
+      nxt.textContent = '查看最终排名';
+      nxt.onclick = function () { App.showFinal(); };
+    } else {
+      quit.style.display = ''; nxt.style.display = '';
+      nxt.textContent = '开始下一轮';
+      nxt.onclick = function () { App.nextRound(); };
+    }
+    el('modalRound').classList.remove('hidden');
+  };
+
+  /** 开始下一轮（盲注升级、手数清零） */
+  App.nextRound = function () {
+    var g = App.game;
+    if (!g || !g.match) return;
+    el('modalRound').classList.add('hidden');
+    var ok = g.startNextRound();
+    if (!ok) { App.showFinal(); return; }
+    App.syncHeader();
+    App.nextHand();
+  };
+
+  /** 最终排名弹窗 */
+  App.showFinal = function () {
+    var g = App.game;
+    if (!g) return;
+    var standings = g.finalStandings();
+    var champ = standings[0] || null;
+    var html = '';
+    if (champ) {
+      html += '<div class="final-hero">' +
+        '<div class="fa-avatar">' + (champ.avatar || (champ.isHuman ? '🙂' : '🤖')) + '</div>' +
+        '<div class="fa-title">' + (champ.isHuman ? '你' : esc(champ.name)) + ' 夺冠</div>' +
+        '<div class="fa-sub">累计积分 ' + champ.totalPts + ' · 剩余筹码 ¥' + champ.chips + '</div>' +
+        '</div>';
+    }
+    html += standHeaderHtml(true) + standings.map(function (row) { return standRowHtml(row, true); }).join('');
+    el('finalBody').innerHTML = html;
+    el('modalRound').classList.add('hidden');   // 从轮次弹窗进入最终排名时关闭轮次弹窗
+    el('modalFinal').classList.remove('hidden');
+  };
+
+  /** 返回选桌（清理比赛状态） */
+  App.backLobby = function () {
+    if (App.aiTimer) clearTimeout(App.aiTimer);
+    if (App.bubbleTimer) clearTimeout(App.bubbleTimer);
+    el('modalFinal').classList.add('hidden');
+    el('modalRound').classList.add('hidden');
+    App.game = null;
+    App.reviews = [];
+    App.mode = 'practice';
+    App.busy = false;
+    el('roundTag').classList.add('hidden');
+    App.openSetup();
+  };
+
+  /** 榜单表头（final=true 时不含“本轮”列） */
+  function standHeaderHtml(isFinal) {
+    return '<div class="stand-hdr">' +
+      '<span class="stand-rank">#</span>' +
+      '<span class="stand-avatar"></span>' +
+      '<span class="stand-name">玩家</span>' +
+      '<span class="stand-chips">筹码</span>' +
+      (isFinal ? '' : '<span class="stand-delta">本轮</span>') +
+      '<span class="stand-pts">' + (isFinal ? '总分' : '积分') + '</span>' +
+      '</div>';
+  }
+
+  /** 榜单行 */
+  function standRowHtml(row, isFinal) {
+    var rankCls = row.rank === 1 ? ' r1' : row.rank === 2 ? ' r2' : row.rank === 3 ? ' r3' : '';
+    var rowCls = 'stand-row';
+    if (row.isHuman) rowCls += ' me';
+    if (row.eliminated) rowCls += ' out';
+    var nameHtml = esc(row.name) + (row.isHuman ? '<span class="y-badge">你</span>' : '');
+    var avatar = row.avatar || (row.isHuman ? '🙂' : '🤖');
+    var html = '<div class="' + rowCls + '">' +
+      '<span class="stand-rank' + rankCls + '">' + row.rank + '</span>' +
+      '<span class="stand-avatar">' + avatar + '</span>' +
+      '<span class="stand-name">' + nameHtml + '</span>' +
+      '<span class="stand-chips">' + row.chips + '</span>';
+    if (!isFinal) {
+      var dCls = row.roundDelta > 0 ? ' up' : (row.roundDelta < 0 ? ' down' : '');
+      var deltaTxt = row.roundDelta > 0 ? '+' + row.roundDelta : String(row.roundDelta);
+      html += '<span class="stand-delta' + dCls + '">' + deltaTxt + '</span>';
+    }
+    html += '<span class="stand-pts">' +
+      (!isFinal && row.roundPts > 0 ? '<small>+' + row.roundPts + '</small>' : '') +
+      row.totalPts + '</span></div>';
+    return html;
+  }
 
   // ================= 渲染 =================
   App.render = function () {

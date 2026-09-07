@@ -617,3 +617,60 @@ body {
   .seat { width: 156px; }
   .log-panel { width: 280px; }
 }
+/* ===== 比赛模式（轮次制）===== */
+.round-chip {
+  display: inline-flex; align-items: center;
+  background: linear-gradient(180deg, rgba(241,197,96,.18), rgba(241,197,96,.08));
+  border: 1px solid rgba(241,197,96,.45);
+  color: var(--gold); font-weight: 800;
+  padding: 3px 12px; border-radius: 999px;
+  font-size: 13px; margin-right: 12px; letter-spacing: .5px;
+  white-space: nowrap;
+}
+.round-chip .rc-pts { color: #fff; margin-left: 6px; }
+.setup-actions { display: flex; align-items: center; gap: 10px; }
+.setup-actions .btn { min-width: 0; }
+
+.round-sub { color: var(--muted); font-size: 13.5px; margin-right: auto; margin-left: 14px; }
+.round-body { padding: 16px 24px 8px; }
+.stand-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 14px; margin-bottom: 7px;
+  background: linear-gradient(180deg, rgba(30,46,70,.5), rgba(20,30,48,.5));
+  border: 1px solid var(--line); border-radius: 11px;
+  font-size: 15px;
+}
+.stand-row.me { border-color: var(--gold); background: linear-gradient(180deg, rgba(70,55,25,.4), rgba(50,38,18,.4)); box-shadow: 0 0 0 1px rgba(241,197,96,.2); }
+.stand-rank { width: 34px; font-weight: 800; font-size: 17px; text-align: center; }
+.stand-rank.r1 { color: var(--gold); } .stand-rank.r2 { color: #c0c8d4; } .stand-rank.r3 { color: #cd8a4a; }
+.stand-avatar { font-size: 24px; }
+.stand-name { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stand-name .y-badge { font-size: 11px; color: var(--gold); margin-left: 6px; }
+.stand-chips { color: var(--gold); font-weight: 800; font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; }
+.stand-chips::before { content: '¥'; font-size: 12px; opacity: .8; margin-right: 1px; }
+.stand-delta { min-width: 84px; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stand-delta.up { color: var(--red); } .stand-delta.down { color: var(--green); }
+.stand-pts { min-width: 58px; text-align: right; color: #fff; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stand-pts small { color: var(--muted); font-weight: 400; margin-right: 4px; font-size: 11px; }
+.stand-hdr {
+  display: flex; align-items: center; gap: 14px; padding: 4px 14px 8px;
+  font-size: 12px; color: var(--muted); letter-spacing: .5px;
+}
+.stand-hdr .stand-name { flex: 1; }
+.stand-hdr .stand-chips { min-width: 96px; text-align: right; }
+.stand-hdr .stand-delta { min-width: 84px; text-align: right; }
+.stand-hdr .stand-pts { min-width: 58px; text-align: right; }
+.round-leader { font-size: 14px; color: var(--text-2); }
+.round-leader b { color: var(--gold); font-size: 16px; }
+#btnMatchQuit { border-color: var(--red); color: var(--red); }
+#btnNextRound { min-width: 0; }
+.final-hero { text-align: center; padding: 18px 0 10px; }
+.final-hero .fa-avatar { font-size: 54px; }
+.final-hero .fa-title { font-size: 20px; font-weight: 800; margin-top: 6px; }
+.final-hero .fa-sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+/* 比赛榜单小补：出局行淡化、表头头像列占位对齐 */
+.stand-row.out { opacity: .55; filter: saturate(.5); }
+.stand-hdr .stand-avatar { width: 26px; flex: none; }
+.stand-row .stand-avatar { width: 26px; flex: none; text-align: center; }
+#modalRound .modal-head h2, #modalFinal .modal-head h2 { display: flex; align-items: center; }
+#modalRound .modal-head .round-sub { margin-right: auto; margin-left: 14px; }
