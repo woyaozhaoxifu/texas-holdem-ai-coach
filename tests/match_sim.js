@@ -83,7 +83,7 @@ try {
   assert(g.match.enabled && g.match.roundNo === 1, '比赛开启，第 1 轮');
   assert(g.smallBlind === 10 && g.bigBlind === 20, '第 1 轮盲注 10/20');
   assert(g.config.autoRebuy === false, '比赛不补筹（autoRebuy=false）');
-  assert(sumChips(g) === TOTAL, '初始总筹码 12000');
+  assert(sumChips(g) === TOTAL, '初始总筹码 1200000');
 
   console.log('—— 第 1 轮：15 手轮满 ——');
   for (var h1 = 0; h1 < 14; h1++) {
