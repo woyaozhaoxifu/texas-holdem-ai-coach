@@ -81,6 +81,12 @@ body {
   border: 1px solid var(--line); background: rgba(255,255,255,.03);
 }
 .switch input { width: 15px; height: 15px; accent-color: var(--gold); cursor: pointer; }
+.keys-hint {
+  color: var(--muted); font-size: 11px; letter-spacing: .3px;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px dashed var(--line); opacity: .85; white-space: nowrap;
+}
+@media (max-width: 860px) { .keys-hint { display: none; } }
 
 /* ===== 按钮基础 ===== */
 .btn {
@@ -636,6 +642,23 @@ body {
   border: 1px solid var(--line); background: #0d1424; color: var(--text); font-size: 14px;
 }
 .tag-custom .btn { white-space: nowrap; }
+/* 本局战绩小结 */
+.ss-list { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.ss-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 10px; background: rgba(255,255,255,.03);
+}
+.ss-row.me { background: rgba(255, 179, 71, .08); border: 1px solid rgba(255, 179, 71, .25); }
+.ss-avatar { font-size: 18px; width: 26px; text-align: center; }
+.ss-name { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-name b { color: var(--gold); }
+.ss-delta { font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+.ss-delta.up { color: var(--red); } .ss-delta.down { color: var(--green); }
+.ss-best {
+  margin-top: 10px; padding: 8px 12px; border-radius: 10px;
+  background: rgba(255,255,255,.03); font-size: 13px; color: var(--muted); line-height: 1.5;
+}
+.ss-best b { color: var(--gold); }
 .modal-foot {
   padding: 18px 26px; border-top: 1px solid var(--line);
   display: flex; justify-content: space-between; align-items: center;

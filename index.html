@@ -16,10 +16,13 @@
   <div class="hand-info" data-page-node-id="BR4bh8UA305RUAs07ZILK3"><span id="roundTag" class="round-chip hidden" data-page-node-id="rt1"></span><span>第 <b id="handNo" data-page-node-id="Uox4NkeXnmookYF6ACZcOH">0</b> 手</span>　盲注 <b id="blinds" data-page-node-id="mlhzceMH8vMfIZZdXqKlJx">10 / 20</b>　你的筹码 <b id="myChips" data-page-node-id="C8CmvK6kGKQCAt9UthhWcz">2000</b></div>
   <div class="top-actions" data-page-node-id="RoscmftCEZMgbkT6KK70Re">
     <label class="switch" data-page-node-id="cpXbnVO4k9guXpLsTxxuhC"><input type="checkbox" id="chkCoach" checked data-page-node-id="vrZDFStGuK4G3u7BrsApCn"> 教学提示</label>
+    <label class="switch"><input type="checkbox" id="chkSound" checked> 🔔 音效</label>
+    <span class="keys-hint" title="键盘快捷键">F弃 C跟/过 R加 A全下</span>
     <button class="btn ghost" id="btnSetup" data-page-node-id="rfFAr63SQUJtPlZaAVflwD">选桌</button>
     <button class="btn ghost" id="btnReview" data-page-node-id="rYOhYrt8nRrDkDTdLlH73u">复盘</button>
     <button class="btn ghost" id="btnClass" data-page-node-id="7BUaSpCGgqmhoWWmoi87tH">课堂</button>
     <button class="btn ghost" id="btnStats" data-page-node-id="pC3VIaY8AQrFB3YUHFeE9O">统计</button>
+    <button class="btn ghost" id="btnSession" title="本局战绩小结 · 可复制/导出">战绩</button>
     <button class="btn ghost hidden" id="btnReveal" title="匿名桌：揭晓对手真实身份（不可逆）">🔍 揭晓身份</button>
   </div>
 </header>
@@ -177,6 +180,19 @@
       <input type="text" id="tagCustom" placeholder="自定义标签，如「爱诈唬」" maxlength="8" data-page-node-id="tagCi">
       <button class="btn ghost" id="tagCustomOk" data-page-node-id="tagCo">标注</button>
       <button class="btn ghost" id="tagClear" data-page-node-id="tagCl">清除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 本局战绩 -->
+<div class="modal hidden" id="modalSession">
+  <div class="modal-box">
+    <div class="modal-head"><h2>📊 本局战绩小结</h2><button class="close" data-close="modalSession">×</button></div>
+    <div class="modal-sub" id="sessionMeta"></div>
+    <div class="stats-body" id="sessionBody"></div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="btnSessionCopy">📋 复制文本</button>
+      <button class="btn ghost" id="btnSessionDl">⬇ 下载 JSON</button>
     </div>
   </div>
 </div>

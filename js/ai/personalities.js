@@ -448,6 +448,34 @@
     // 附加常识约束：加注率不可能超过入池率
     if (out.pfr > out.vpip) out.pfr = out.vpip;
 
+    // 5b) ---- 「反常手」：低概率整手性格违和（约 7%）。
+    //      只动 诈唬/持续下注/偷盲/3bet/跟注阈值 等决策杠杆，绝不碰 vpip/pfr/preflopTop/
+    //      betSizing（那几项是 HUD 推断身份的统计口径，动了会毁掉匿名桌可辨识性）。
+    //      效果：岩石老张偶尔突然凶一把、鱼突然紧得反常 —— 有戏剧性又不崩人设。
+    var QUIRK_RATE = 0.07;
+    if (drift > 0 && r() < QUIRK_RATE) {
+      if (p.id === 'fish' || p.id === 'lag') {
+        // 松派反常 = 突然收紧
+        var fK = 0.15 + r() * 0.30;   // ×0.15~0.45
+        out.bluffFreq = clamp(out.bluffFreq * fK, 0, 0.9);
+        out.cbetFreq = clamp(out.cbetFreq * fK, 0, 0.95);
+        out.stealFreq = clamp(out.stealFreq * fK, 0, 0.9);
+        out.threeBetFreq = clamp(out.threeBetFreq * fK, 0, 0.6);
+        out.callThreshold = clamp(out.callThreshold + 0.10 + r() * 0.12, 0, 1);
+        out.quirkNote = p.id === 'fish' ? '今天怎么这么老实' : '这手突然不想玩了';
+      } else {
+        // 紧派/技术派反常 = 突然凶起来
+        var fM = 1.7 + r() * 0.9;     // ×1.7~2.6
+        out.bluffFreq = clamp(out.bluffFreq * fM, 0, 0.9);
+        out.cbetFreq = clamp(out.cbetFreq * fM, 0, 0.95);
+        out.stealFreq = clamp(out.stealFreq * (1.2 + r() * 0.8), 0, 0.9);
+        out.threeBetFreq = clamp(out.threeBetFreq * (1 + r() * 1.2), 0, 0.7);
+        out.quirkNote = p.id === 'rock' ? '难得躁动一次' : '手感来了，凶一把';
+      }
+    } else {
+      out.quirkNote = '';
+    }
+
     // 7) 冻结字段：以基准值写回，确保完全不被扰动
     for (i = 0; i < FROZEN_FIELDS.length; i++) {
       out[FROZEN_FIELDS[i]] = p[FROZEN_FIELDS[i]];

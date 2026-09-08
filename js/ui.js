@@ -134,11 +134,21 @@
   // ================= 初始化 =================
   App.init = function () {
     App.stats = App.loadStats();
+    App.oppStats = App.loadOppStats();
+    App.prefs = App.loadPrefs();
+    App.applyPrefsUi();
+    App.bindPref('chkAnon', 'anon');
+    App.bindPref('chkCoach', 'coach');
+    App.bindPref('chkSound', 'sound');
+    App.bindKeys();
 
     el('btnSetup').onclick = function () { App.openSetup(); };
     el('btnReview').onclick = function () { if (App.reviews.length) App.showReview(App.reviews.length - 1); else App.toast('还没有可复盘的手牌'); };
     el('btnClass').onclick = function () { App.openClass(); };
     el('btnStats').onclick = function () { App.openStats(); };
+    el('btnSession').onclick = function () { App.showSessionSummary(); };
+    el('btnSessionCopy').onclick = function () { App.sessionCopy(); };
+    el('btnSessionDl').onclick = function () { App.sessionDownload(); };
 
     var closers = document.querySelectorAll('[data-close]');
     for (var i = 0; i < closers.length; i++) {
@@ -401,9 +411,11 @@
       cfg.match = { enabled: true, roundHands: 15, blindLevels: MATCH_BLINDS, payouts: [50, 30, 20] };
     }
     App.game = new Poker.Game(cfg);
+    App.seedOppStats();          // 把跨会话累积的对手统计灌进本桌座位
     App.reviews = [];
     App.revealAll = false;
     App.busy = false;
+    App.session = { hands: 0, playerWins: 0, bestDelta: -1e9, bestTxt: '', worstDelta: 1e9, worstTxt: '', startChips: initialChips };
     el('log').innerHTML = '';
     App.syncHeader();
     var foes = ids.map(function (i, k) {
@@ -416,6 +428,8 @@
   App.nextHand = function () {
     if (!App.game) return;
     var g = App.game;
+    // 上一手已结算 → 把对手累计统计落盘（首手 handNo=0 不动，避免用 0 覆盖历史）
+    if (g.handNo > 0) App.saveOppStats();
     if (g.match && g.match.enabled) {
       if (g.match.over) { App.showFinal(); return; }
       if (g.match.pendingRoundEnd) { App.showRoundResult(); return; }
@@ -488,10 +502,18 @@
     var pd = App._aiDecision;
     var d = (pd && pd.idx === idx) ? pd.d : g.aiDecide(idx);
     App._aiDecision = null;
-    App.showBubble(idx, d.reason || '……');
+    // 「反常手」：该座位本手首次行动时，用气泡亮出违和台词（只亮一次）
+    var pp = seat.personality;
+    var bubbleTxt = d.reason || '……';
+    if (pp && pp.quirkNote && !pp._qlog) {
+      pp._qlog = true;
+      bubbleTxt = '『' + pp.quirkNote + '』';
+    }
+    App.showBubble(idx, bubbleTxt);
     var before = g.street;
     var c0 = seat.committed;
     g.act(idx, d.action, d.raiseTo, d.reason);
+    App.sfx(d.action);   // AI 行动音效（弃/过/跟/加/全下）
     // 沉浸感：AI 跟注/加注/全下 → 按本次真实投入额把筹码从座位飞向底池
     if (d.action === 'call' || d.action === 'raise' || d.action === 'allin') {
       var seatNode = document.querySelector('.seat[data-idx="' + idx + '"]');
@@ -515,6 +537,7 @@
     if (action === 'raise') amt = Math.min(Math.max(raiseTo || legal.minRaiseTo, legal.minRaiseTo), legal.maxTo);
     var me0 = g.seats[g.playerIndex].committed;
     g.act(g.playerIndex, action, amt, '');
+    App.sfx(action);   // 跟注/加注/全下…反馈音（音频上下文在首次用户手势后可用）
     // 沉浸感：投入筹码 → 按本次真实投入额把筹码从手牌区飞向底池
     if (action === 'call' || action === 'raise' || action === 'allin') {
       var invested = g.seats[g.playerIndex].committed - me0;
@@ -752,6 +775,7 @@
         if (w.seatIndex === g.playerIndex) winAmt += w.amount;
       });
       if (winAmt <= 0) winAmt = result.playerDelta;
+      App.sfx('win');
       setTimeout(function () { App.chipFly(el('pot'), el('myHand'), winAmt); }, 200);
     }
 
@@ -769,6 +793,21 @@
       App.rvIdx = App.reviews.length - 1;
       App.stats = Review.updateStats(App.stats, review);
       App.saveStats();
+
+      // —— 本局战绩聚合（「战绩」小结 / 导出用）——
+      var ss = App.session;
+      if (ss) {
+        ss.hands++;
+        if (result.playerDelta > 0) ss.playerWins++;
+        if (result.playerDelta > ss.bestDelta) {
+          ss.bestDelta = result.playerDelta;
+          ss.bestTxt = (result.playerDelta > 0 ? '+' : '') + result.playerDelta + ' ｜ ' + review.summary;
+        }
+        if (result.playerDelta < ss.worstDelta) {
+          ss.worstDelta = result.playerDelta;
+          ss.worstTxt = String(result.playerDelta) + ' ｜ ' + review.summary;
+        }
+      }
 
       var d = result.playerDelta;
       App.log('本手盈亏：' + (d > 0 ? '+' : '') + d + ' ｜ ' + esc(review.summary), d > 0 ? 'act-win' : '');
@@ -866,11 +905,13 @@
     html += standHeaderHtml(true) + standings.map(function (row) { return standRowHtml(row, true); }).join('');
     el('finalBody').innerHTML = html;
     el('modalRound').classList.add('hidden');   // 从轮次弹窗进入最终排名时关闭轮次弹窗
+    App.saveOppStats();                          // 终局落盘对手统计
     el('modalFinal').classList.remove('hidden');
   };
 
   /** 返回选桌（清理比赛状态） */
   App.backLobby = function () {
+    App.saveOppStats();   // 离桌前把对手统计落盘
     if (App.aiTimer) clearTimeout(App.aiTimer);
     if (App.bubbleTimer) clearTimeout(App.bubbleTimer);
     el('modalFinal').classList.add('hidden');
@@ -1190,6 +1231,99 @@
     if (App.game) App.render();
   };
 
+  // ================= 本局战绩小结 / 导出 =================
+  /** 计算本局各座位相对起始筹码的盈亏行 */
+  App.sessionRows = function () {
+    var g = App.game;
+    var rows = [];
+    if (!g || !g.seats) return rows;
+    var start = (App.session && App.session.startChips) || g.config.initialChips || 2000;
+    for (var i = 0; i < g.seats.length; i++) {
+      var s = g.seats[i];
+      if (!s) continue;   // 出局淘汰者仍列出（chips=0 即真实亏损）
+      rows.push({
+        idx: s.index, name: App.displayName(s), avatar: App.anonAvatar(s),
+        isHuman: s.isHuman, delta: (s.chips || 0) - start
+      });
+    }
+    return rows;
+  };
+
+  App.showSessionSummary = function () {
+    if (!App.game) { App.toast('还没有进行中的牌局'); return; }
+    var g = App.game;
+    var ss = App.session || {};
+    var mode = App.mode === 'match' ? '比赛' : '练习';
+    var rows = App.sessionRows();
+    var cards = '<div class="stat-grid">' +
+      '<div class="stat-cell"><div class="v">' + ss.hands + '</div><div class="k">本局手数</div></div>' +
+      '<div class="stat-cell"><div class="v">' + (ss.playerWins || 0) + '</div><div class="k">你赢下的手</div></div>' +
+      '<div class="stat-cell"><div class="v">' + g.handNo + '</div><div class="k">当前第几手</div></div>' +
+      '</div>';
+    var list = rows.map(function (r) {
+      var dCls = r.delta > 0 ? 'up' : r.delta < 0 ? 'down' : '';
+      var sign = r.delta > 0 ? '+' : '';
+      return '<div class="ss-row' + (r.isHuman ? ' me' : '') + '">' +
+        '<span class="ss-avatar">' + r.avatar + '</span>' +
+        '<span class="ss-name">' + esc(r.name) + (r.isHuman ? ' <b>(你)</b>' : '') + '</span>' +
+        '<span class="ss-delta ' + dCls + '">' + sign + r.delta + '</span>' +
+        '</div>';
+    }).join('');
+    var best = ss.bestTxt ? '<div class="ss-best"><b>🥇 最优一手</b>　' + esc(ss.bestTxt) + '</div>' : '';
+    var worst = ss.worstTxt ? '<div class="ss-best"><b>🥴 最差一手</b>　' + esc(ss.worstTxt) + '</div>' : '';
+    el('sessionMeta').textContent = '模式：' + mode + '（' + (ss.startChips || 0) + ' 筹码开局）';
+    el('sessionBody').innerHTML = cards + '<div class="ss-list">' + list + '</div>' + best + worst;
+    el('modalSession').classList.remove('hidden');
+  };
+
+  /** 战绩 → 纯文本（复制用） */
+  App.sessionText = function () {
+    var g = App.game, ss = App.session || {};
+    var lines = [];
+    lines.push('德州扑克 AI 对战 · 本局战绩');
+    lines.push('时间：' + new Date().toLocaleString('zh-CN') + '　模式：' + (App.mode === 'match' ? '比赛' : '练习'));
+    lines.push('手数：' + ss.hands + '　你赢下：' + (ss.playerWins || 0) + ' 手');
+    App.sessionRows().forEach(function (r) {
+      lines.push((r.isHuman ? '你' : r.name) + '：' + (r.delta > 0 ? '+' : '') + r.delta);
+    });
+    if (ss.bestTxt) lines.push('最优一手：' + ss.bestTxt);
+    if (ss.worstTxt) lines.push('最差一手：' + ss.worstTxt);
+    return lines.join('\n');
+  };
+
+  App.sessionCopy = function () {
+    var txt = App.sessionText();
+    function done(okFlag) { App.toast(okFlag ? '战绩已复制到剪贴板' : '复制失败，请用「下载」'); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { done(true); }, function () { done(false); });
+    } else {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        done(ok);
+      } catch (e) { done(false); }
+    }
+  };
+
+  App.sessionDownload = function () {
+    var g = App.game, ss = App.session || {};
+    var payload = {
+      time: new Date().toISOString(), mode: App.mode || 'practice',
+      hands: ss.hands, playerWins: ss.playerWins || 0,
+      best: ss.bestTxt || '', worst: ss.worstTxt || '',
+      standings: App.sessionRows()
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'poker-session-' + Date.now() + '.json';
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+  };
+
   function cardEl(card, small, fancy) {
     var d = document.createElement('div');
     if (fancy) {
@@ -1426,6 +1560,145 @@
 
   App.saveStats = function () {
     try { localStorage.setItem('poker_stats_v1', JSON.stringify(App.stats)); } catch (e) { /* ignore */ }
+  };
+
+  // ================= 对手建模跨会话持久化 =================
+  // 按人格 id 累积对手客观统计（入池/加注/3bet/偷盲…），换桌或刷新浏览器后保留，
+  // 与「点击标注」组成完整对手档案；HUD 直接读 seat.stats，因此天然复用。
+  App.oppStats = {};
+  App.loadOppStats = function () {
+    try {
+      var raw = localStorage.getItem('poker_opp_stats_v1');
+      if (raw) return JSON.parse(raw) || {};
+    } catch (e) { /* ignore */ }
+    return {};
+  };
+  App.saveOppStats = function () {
+    var g = App.game;
+    if (!g || !g.seats) return;
+    var map = App.oppStats || {};
+    for (var i = 0; i < g.seats.length; i++) {
+      var s = g.seats[i];
+      if (!s || s.isHuman || !s.id || !s.stats) continue;
+      var copy = {};
+      for (var k in s.stats) if (s.stats.hasOwnProperty(k)) copy[k] = s.stats[k];
+      map[s.id] = copy;
+    }
+    try { localStorage.setItem('poker_opp_stats_v1', JSON.stringify(map)); } catch (e) { /* ignore */ }
+    App.oppStats = map;
+  };
+  /** 开局：把已存的历史统计灌进本桌座位的 seat.stats（覆盖新建的 0 值对象，不累加第二次） */
+  App.seedOppStats = function () {
+    var g = App.game;
+    if (!g || !g.seats) return;
+    var map = App.oppStats || {};
+    for (var i = 0; i < g.seats.length; i++) {
+      var s = g.seats[i];
+      if (!s || s.isHuman || !s.id || !s.stats) continue;
+      var base = map[s.id];
+      if (!base) continue;
+      for (var k in base) if (base.hasOwnProperty(k) && s.stats) s.stats[k] = (s.stats[k] || 0) + (base[k] || 0);
+    }
+  };
+
+  // ================= 偏好记忆（匿名桌/教学提示/音效）=================
+  App.prefs = {};
+  App.loadPrefs = function () {
+    try {
+      var raw = localStorage.getItem('poker_prefs_v1');
+      if (raw) return JSON.parse(raw) || {};
+    } catch (e) { /* ignore */ }
+    return {};
+  };
+  App.savePrefs = function () {
+    try { localStorage.setItem('poker_prefs_v1', JSON.stringify(App.prefs)); } catch (e) { /* ignore */ }
+  };
+  App.pref = function (key, def) {
+    var v = App.prefs[key];
+    return v === undefined ? def : v;
+  };
+  /** 偏好 → 界面控件 */
+  App.applyPrefsUi = function () {
+    var set = function (id, v) { var x = document.getElementById(id); if (x) x.checked = !!v; };
+    set('chkAnon', App.pref('anon', false));
+    set('chkCoach', App.pref('coach', true));
+    set('chkSound', App.pref('sound', true));
+  };
+  /** 控件变更 → 存偏好 */
+  App.bindPref = function (id, key) {
+    var x = document.getElementById(id);
+    if (!x) return;
+    x.onchange = function () { App.prefs[key] = !!x.checked; App.savePrefs(); };
+  };
+
+  // ================= 音效（WebAudio 合成，零依赖，可关）=================
+  App._actx = null;
+  App._ac = function () {
+    if (!App.pref('sound', true)) return null;
+    try {
+      if (!App._actx) {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        App._actx = new AC();
+      }
+      if (App._actx.state === 'suspended' && App._actx.resume) App._actx.resume();
+      return App._actx;
+    } catch (e) { return null; }
+  };
+  App._tone = function (freq, t0, dur, type, vol) {
+    var ac = App._ac();
+    if (!ac) return;
+    try {
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine';
+      var now = ac.currentTime + t0;
+      o.frequency.setValueAtTime(freq, now);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(vol || 0.10, now + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + (dur || 0.15));
+      o.connect(g); g.connect(ac.destination);
+      o.start(now); o.stop(now + (dur || 0.15) + 0.05);
+    } catch (e) { /* ignore */ }
+  };
+  /** 语义音效 */
+  App.sfx = function (kind) {
+    if (!App.pref('sound', true)) return;
+    switch (kind) {
+      case 'fold': App._tone(170, 0, 0.10, 'square', 0.05); break;
+      case 'check': App._tone(340, 0, 0.09, 'triangle', 0.07); break;
+      case 'call': App._tone(470, 0, 0.10, 'triangle', 0.09); break;
+      case 'raise': App._tone(560, 0, 0.09, 'triangle', 0.10); App._tone(720, 0.08, 0.12, 'triangle', 0.10); break;
+      case 'allin': App._tone(300, 0, 0.16, 'sawtooth', 0.08); App._tone(540, 0.09, 0.18, 'sawtooth', 0.09); App._tone(880, 0.19, 0.30, 'sawtooth', 0.10); break;
+      case 'win': App._tone(523, 0, 0.12, 'triangle', 0.11); App._tone(659, 0.10, 0.12, 'triangle', 0.11); App._tone(784, 0.20, 0.24, 'triangle', 0.11); break;
+      case 'deal': App._tone(740, 0, 0.05, 'sine', 0.05); App._tone(980, 0.05, 0.06, 'sine', 0.05); break;
+    }
+  };
+
+  // ================= 键盘快捷键：F 弃 / C 跟注或过牌 / R 加注 / A 全下 =================
+  App.bindKeys = function () {
+    if (App._keysBound) return;
+    App._keysBound = true;
+    document.addEventListener('keydown', function (e) {
+      var t = e.target;
+      if (t && t.tagName && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var g = App.game;
+      if (!g || g.isHandOver || g.currentActor !== g.playerIndex || App.busy) return;
+      var legal = g.legalActions(g.playerIndex);
+      var canBet = legal.maxTo > legal.minRaiseTo;
+      var k = (e.key || '').toLowerCase();
+      var acted = false;
+      if (k === 'f') { App.playerAct('fold'); acted = true; }
+      else if (k === 'c') {
+        if (legal.canCheck) { App.playerAct('check'); acted = true; }
+        else if (legal.canCall) { App.playerAct('call'); acted = true; }
+      } else if (k === 'r') {
+        if (canBet) { App.syncRaise(true); App.playerAct('raise', App.raiseAmount()); acted = true; }
+      } else if (k === 'a') {
+        if (canBet) { App.playerAct('allin'); acted = true; }
+      }
+      if (acted) e.preventDefault();
+    });
   };
 
   App.openStats = function () {
