@@ -760,13 +760,16 @@ body {
 .dec-comment { font-size: 15.5px; line-height: 1.7; }
 
 .opp-row {
-  display: flex; align-items: center; gap: 14px;
-  padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.06);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 7px 14px;
+  padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06);
   font-size: 14.5px;
 }
-.opp-row .nm { min-width: 110px; font-weight: 800; }
+.opp-row .nm { min-width: 105px; font-weight: 800; }
+.opp-row .op-hole { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.opp-row .op-hole .card.small { box-shadow: 0 2px 6px rgba(0,0,0,.5); }
 .opp-row .hd { color: var(--cyan); }
-.opp-row .rs { color: var(--muted); font-size: 13px; flex: 1; }
+.opp-row .op-fold { color: var(--muted); opacity: .85; font-size: 13px; }
+.opp-row .rs { color: var(--muted); font-size: 13px; flex: 1; min-width: 140px; }
 .opp-row .bluff { color: var(--purple); font-weight: 800; font-size: 12.5px; }
 
 .tip-card {

@@ -121,15 +121,17 @@
         for (var e = 0; e < (result.evals || []).length; e++) {
           if (result.evals[e].seatIndex === i) ev = result.evals[e];
         }
+        // 复盘 = 教学回顾：所有对手底牌一律可见（含弃牌/未摊牌），成手名仅真实摊牌时有
         var showed = !s.folded && result.showdown && ev;
         opponents.push({
           name: s.name,
           avatar: s.avatar,
           personalityId: s.personality ? s.personality.id : '',
           folded: s.folded,
-          hole: showed ? (ev.hole || s.hole) : [],
+          hole: (ev && ev.hole && ev.hole.length) ? ev.hole : (s.hole || []),
           handName: showed ? ev.name : '',
-          revealed: !!showed,
+          revealed: true,
+          showdown: !!showed,
           lastAction: last ? actionCN(last.action) : '',
           reason: last ? (last.reason || '') : '',
           // 诈唬判定：摊牌时成手牌只有一对以下，且最后一击是加注/全下

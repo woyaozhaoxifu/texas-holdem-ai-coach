@@ -1529,14 +1529,16 @@
     });
     html += '</div>';
 
-    // 对手解读
+    // 对手解读（复盘亮牌：每个对手都显示本手实际底牌）
     if (r.opponents.length) {
-      html += '<div class="rv-section"><div class="rv-h">对手解读（他们在想什么）</div>';
+      html += '<div class="rv-section"><div class="rv-h">对手解读（底牌全开 · 他们当时在想什么）</div>';
       r.opponents.forEach(function (o) {
-        var hole = o.revealed ? esc(Cards.cardsText(o.hole)) : '未亮牌';
+        var holeHtml = (o.hole && o.hole.length) ? cardsHtml(o.hole) : '<span class="rv-label">未亮牌</span>';
+        var hdTxt = o.handName ? esc(o.handName) : (o.folded ? '<span class="op-fold">弃牌</span>' : '');
         html += '<div class="opp-row">' +
           '<span class="nm">' + esc(App.displayName(o)) + '</span>' +
-          '<span class="hd">' + esc(o.handName || hole) + '</span>' +
+          '<span class="op-hole">' + holeHtml + '</span>' +
+          (hdTxt ? '<span class="hd">' + hdTxt + '</span>' : '') +
           (o.wasBluff ? '<span class="bluff">诈唬</span>' : '') +
           '<span class="rs">' + esc(o.lastAction) + (o.reason ? '「' + esc(o.reason) + '」' : '') + '</span>' +
           '<span class="mood ' + (o.mood <= -25 ? 'hot' : '') + '">' + Personalities.moodEmoji(o.mood) + ' ' + esc(o.moodLabel) + '</span>' +
