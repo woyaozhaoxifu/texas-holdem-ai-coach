@@ -1009,6 +1009,18 @@
     if (seat.bet > 0 && !seat.folded) state.push('<span class="st-bet">已投 ' + seat.bet + '</span>');
     if (g.currentActor === g.playerIndex && !g.isHandOver) state.push('<span class="st-act">轮到你了</span>');
     el('myState').innerHTML = state.join('　');
+    // 人类也显示 庄 Puck + 本手已投（玩家不在 .seat 列表里，需要单独显示）
+    var bar = el('myHand').querySelector('.mh-bar');
+    if (bar) {
+      var meta = bar.querySelector('.mh-meta');
+      if (!meta) { meta = document.createElement('span'); meta.className = 'mh-meta'; bar.appendChild(meta); }
+      var pp = [];
+      if (seat.role === 'D') pp.push('<span class="role-puck r-D" title="庄">庄</span>');
+      else if (seat.role === 'SB') pp.push('<span class="role-puck r-SB" title="小盲">小盲</span>');
+      else if (seat.role === 'BB') pp.push('<span class="role-puck r-BB" title="大盲">大盲</span>');
+      if (seat.committed && seat.committed > 0) pp.push('<span class="seat-committed">' + seat.committed + '</span>');
+      meta.innerHTML = pp.join('');
+    }
     var zone = el('myHand');
     zone.className = 'my-hand';
     if (g.currentActor === g.playerIndex && !g.isHandOver) zone.className += ' active';
@@ -1105,14 +1117,29 @@
       : (p ? '<div class="seat-style">' + Personalities.stars(p.difficulty) + ' ' + esc(p.style) + '</div>'
         : '<div class="seat-style">你</div>');
 
+    // 角色 puck：庄/小盲/大盲 + 我的上家（永远标记玩家上家，让你一眼看清行动方向）
+    var pucks = [];
+    if (s.role === 'D' || s.role === 'SB' || s.role === 'BB') {
+      var rLbl = s.role === 'D' ? '庄' : (s.role === 'SB' ? '小盲' : '大盲');
+      pucks.push('<span class="role-puck r-' + s.role + '" title="' + rLbl + '">' + rLbl + '</span>');
+    }
+    var upIdx = (g.playerIndex - 1 + g.seats.length) % g.seats.length;
+    if (s.index === upIdx && !s.isHuman) {
+      pucks.push('<span class="role-puck up" title="你的上家">上家</span>');
+    }
+    var pucksHtml = pucks.length ? '<span class="role-pucks">' + pucks.join('') + '</span>' : '';
+    var committedHtml = (s.committed && s.committed > 0) ? '<div class="seat-committed">' + s.committed + '</div>' : '';
+
     var html = '<div class="seat-top">' +
       '<span class="avatar">' + App.anonAvatar(s) + '</span>' +
+      pucksHtml +
       '<div style="min-width:0">' +
       '<div class="seat-name">' + esc(App.displayName(s)) + '</div>' +
       styleHtml +
       '</div></div>' +
       '<div class="seat-line"><span class="chips">¥' + s.chips + '</span>' +
       (moodTxt ? '<span class="mood ' + moodCls + '">' + moodTxt + '</span>' : '') + '</div>' +
+      committedHtml +
       (hud ? App.hudBadgeHtml(hud) : '') +
       '<div class="hole"></div>';
 

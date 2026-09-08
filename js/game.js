@@ -347,6 +347,12 @@
       bbIdx = n > 2 ? (this.button + 2) % n : (this.button + 1) % n;
     }
 
+    // 角色标记（庄/小盲/大盲，UI 用 committed 已被前面的清理块重置）
+    for (var ri = 0; ri < n; ri++) this.seats[ri].role = '';
+    this.seats[this.button].role = 'D';
+    this.seats[sbIdx].role = 'SB';
+    this.seats[bbIdx].role = 'BB';
+
     this.deck = Cards.shuffle(Cards.buildDeck(), this.rng);
     var live = [];
     for (var k = 0; k < n; k++) if (!this.seats[k].sittingOut) live.push(k);

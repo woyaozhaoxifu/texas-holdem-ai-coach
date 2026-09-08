@@ -23,7 +23,7 @@
   --felt-1: #1f5c4d;
   --felt-2: #0e3640;
   --felt-3: #06212e;
-  --card-h: 100px;
+  --card-h: 84px;
   --r-card: 12px;
   /* 等比缩放：固定画布尺寸 + transform scale（缩放宿主 scale-host 控制可用区域） */
   --table-base-w: 1280px;
@@ -147,22 +147,31 @@ body {
 .hidden { display: none !important; }
 
 /* ===== 主区（等比缩放）===== */
-/* 缩放宿主：占据顶栏以下全部空间，居中并裁掉溢出的缩放内容 */
+/* 缩放宿主：占据顶栏以下全部空间，居中放缩放后的固定画布容器 */
 .scale-host {
   flex: 1;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  align-items: center;
   min-height: 0;
   overflow: hidden;
 }
+/* 缩放容器：宽高 = 基础画布 × 当前缩放系数，让 .table-area 用 transform
+   放在其内部（绝对定位左上）即可避免父级 overflow:hidden 裁剪底部 */
+.table-area-wrap {
+  position: relative;
+  width: calc(var(--table-base-w) * var(--table-scale));
+  height: calc(var(--table-base-h) * var(--table-scale));
+  flex-shrink: 0;
+}
 /* 固定画布：以 --table-base 为基准尺寸，整体 transform scale 自适应窗口 */
 .table-area {
+  position: absolute;
+  top: 0; left: 0;
   width: var(--table-base-w);
   height: var(--table-base-h);
-  flex-shrink: 0;
   transform: scale(var(--table-scale));
-  transform-origin: top center;
+  transform-origin: top left;
   transition: transform .12s ease-out;
   display: flex;
   min-height: 0;
@@ -221,7 +230,7 @@ body {
   position: relative; width: 190px;
   background: linear-gradient(180deg, rgba(20,30,46,.9), rgba(12,20,32,.93));
   border: 1px solid rgba(120,180,210,.16); border-radius: 14px;
-  padding: 9px 12px 10px;
+  padding: 6px 10px 8px;
   box-shadow: 0 5px 15px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
   backdrop-filter: blur(8px);
   transition: box-shadow .25s, border-color .25s, transform .2s;
@@ -257,6 +266,29 @@ body {
 }
 .seat-line .chips::before { content: '¥'; font-size: 11px; margin-right: 1px; opacity: .8; }
 .mood { font-size: 11.5px; color: var(--muted); }
+/* 角色 Puck：庄/小盲/大盲/上家；位置贴在 avatar 旁 */
+.role-pucks { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.role-puck {
+  display: inline-block; padding: 2px 7px;
+  font-size: 11px; font-weight: 800; letter-spacing: .5px;
+  border-radius: 999px; line-height: 1.4;
+  background: rgba(8,13,24,.6); border: 1px solid rgba(255,255,255,.18);
+  color: var(--gold);
+}
+.role-puck.r-D  { background: #fff; color: #2a1c00; border-color: var(--gold); }
+.role-puck.r-SB { background: linear-gradient(180deg,#ffd87a,#f0a83a); color: #2a1c00; border-color: rgba(255,255,255,.5); }
+.role-puck.r-BB { background: linear-gradient(180deg,#c8b1ff,#8a6ee0); color: #1d1340; border-color: rgba(255,255,255,.5); }
+.role-puck.up   { background: linear-gradient(180deg,#7fc6ff,#3a86e0); color: #fff; border-color: rgba(255,255,255,.4); }
+
+/* 本手已投：明示每人这手累计投入，立刻能看出谁加了注 */
+.seat-committed {
+  margin-top: 4px; display: inline-block;
+  font-size: 12px; font-weight: 800; color: var(--gold);
+  background: rgba(8,13,24,.55); border: 1px solid rgba(120,150,200,.18);
+  padding: 2px 9px; border-radius: 999px; letter-spacing: .3px;
+  font-variant-numeric: tabular-nums;
+}
+.seat-committed::before { content: '本手已投 ¥'; font-size: 10.5px; opacity: .85; margin-right: 3px; }
 /* C2 对手 HUD：座位名下方的迷你统计徽标 */
 .hud-mini {
   margin-top: 5px; display: flex; gap: 5px; flex-wrap: wrap;
@@ -398,8 +430,8 @@ body {
 
 /* ===== 桌面上的玩家区（牌 + 状态 + 教学 + 操作按钮）===== */
 .my-hand {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 2px 0; position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 0; position: relative;
 }
 .my-hand.active .mh-cards .card.fancy {
   box-shadow: 0 0 0 2px rgba(241,197,96,.7), 0 0 40px rgba(241,197,96,.55), 0 10px 28px rgba(0,0,0,.55);
@@ -407,7 +439,7 @@ body {
 .my-hand.folded .mh-cards { opacity: .32; filter: grayscale(.9); }
 .my-hand.allin .mh-bar { border-color: var(--purple); box-shadow: 0 0 0 2px rgba(177,140,255,.4), 0 0 22px rgba(177,140,255,.3); }
 
-.mh-cards { display: flex; gap: 22px; align-items: center; }
+.mh-cards { display: flex; gap: 14px; align-items: center; }
 
 .mh-bar {
   display: flex; align-items: center; gap: 12px;
@@ -424,6 +456,10 @@ body {
   color: var(--gold); font-weight: 800; font-size: 16px;
   font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(241,197,96,.3);
 }
+/* 人类区的庄 Puck + 本手已投（贴在 mh-bar 末尾） */
+.mh-meta { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+.mh-meta .seat-committed { margin-top: 0; font-size: 11px; padding: 2px 7px; }
+.mh-meta .role-puck { font-size: 10.5px; padding: 2px 6px; }
 .mh-state { color: var(--muted); font-size: 14px; display: flex; gap: 9px; align-items: center; }
 .mh-state .st-bet { color: var(--gold); font-weight: 700; }
 .mh-state .st-act {
@@ -437,22 +473,22 @@ body {
 
 /* 玩家大牌：真扑克样式 —— 大花色缩小给角标留呼吸空间 */
 .card.fancy {
-  width: 152px; height: 214px; border-radius: var(--r-card);
+  width: 100px; height: 142px; border-radius: var(--r-card);
   position: relative;
   background: linear-gradient(155deg, #ffffff, #f3f1ec);
-  box-shadow: 0 12px 28px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.06);
+  box-shadow: 0 10px 22px rgba(0,0,0,.5), inset 0 0 0 1px rgba(0,0,0,.06);
   transition: box-shadow .25s, transform .25s;
 }
 .card.fancy .corner { position: absolute; text-align: center; line-height: 1.05; user-select: none; }
-.card.fancy .corner .r { display: block; font-size: 32px; font-weight: 800; }
-.card.fancy .corner .s { display: block; font-size: 26px; margin-top: 1px; }
-.card.fancy .corner.tl { top: 10px; left: 12px; }
-.card.fancy .corner.br { bottom: 10px; right: 12px; transform: rotate(180deg); }
+.card.fancy .corner .r { display: block; font-size: 21px; font-weight: 800; }
+.card.fancy .corner .s { display: block; font-size: 17px; margin-top: 1px; }
+.card.fancy .corner.tl { top: 7px; left: 9px; }
+.card.fancy .corner.br { bottom: 7px; right: 9px; transform: rotate(180deg); }
 .card.fancy .big-suit {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
   display: flex; align-items: center; justify-content: center;
-  font-size: 92px; line-height: 1;
-  text-shadow: 0 3px 8px rgba(0,0,0,.1);
+  font-size: 60px; line-height: 1;
+  text-shadow: 0 2px 6px rgba(0,0,0,.1);
 }
 .card.fancy.red .big-suit, .card.fancy.red .corner { color: #d32029; }
 .card.fancy.black .big-suit, .card.fancy.black .corner { color: #1a1f2a; }
@@ -476,9 +512,9 @@ body {
 .card .s { font-size: 19px; line-height: 1.25; }
 .card.red { color: #d32029; }
 .card.black { color: #1a1f2a; }
-.card.small { width: 46px; height: 64px; border-radius: 7px; }
-.card.small .r { font-size: 19px; }
-.card.small .s { font-size: 16px; }
+.card.small { width: 38px; height: 52px; border-radius: 6px; }
+.card.small .r { font-size: 16px; }
+.card.small .s { font-size: 13px; }
 .card.small.back { background: repeating-linear-gradient(135deg, #2c4a6c, #2c4a6c 5px, #1f3a5a 5px, #1f3a5a 10px); }
 .card.empty {
   background: rgba(255,255,255,.04);
