@@ -167,6 +167,20 @@
   </div>
 </div>
 
+<!-- 对手标注 -->
+<div class="modal hidden" id="modalTag" data-page-node-id="tagM">
+  <div class="modal-box" data-page-node-id="tagB">
+    <div class="modal-head" data-page-node-id="tagH"><h2 data-page-node-id="tagT">标注对手</h2><button class="close" data-close="modalTag" data-page-node-id="tagX">×</button></div>
+    <p class="modal-sub" id="tagTitle" data-page-node-id="tagTt">给对手打个标签，帮助你边打边记牌</p>
+    <div class="tag-presets" id="tagPresets" data-page-node-id="tagP"></div>
+    <div class="tag-custom" data-page-node-id="tagC">
+      <input type="text" id="tagCustom" placeholder="自定义标签，如「爱诈唬」" maxlength="8" data-page-node-id="tagCi">
+      <button class="btn ghost" id="tagCustomOk" data-page-node-id="tagCo">标注</button>
+      <button class="btn ghost" id="tagClear" data-page-node-id="tagCl">清除</button>
+    </div>
+  </div>
+</div>
+
 <script src="js/cards.js"></script>
 <script src="js/handEval.js"></script>
 <script src="js/equity.js"></script>

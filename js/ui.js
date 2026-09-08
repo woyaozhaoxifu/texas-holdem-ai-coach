@@ -197,6 +197,19 @@
     var rv = el('btnReveal');
     if (rv) rv.onclick = function () { App.revealIdentities(false); };
 
+    // 对手标注弹窗：预设标签 / 自定义 / 清除
+    el('tagCustomOk').onclick = function () {
+      if (App.tagTargetIdx >= 0) App.applyTag(App.tagTargetIdx, el('tagCustom').value);
+    };
+    el('tagClear').onclick = function () {
+      if (App.tagTargetIdx >= 0) App.clearTag(App.tagTargetIdx);
+    };
+    el('tagCustom').onkeydown = function (e) {
+      if (e.key === 'Enter') {
+        if (App.tagTargetIdx >= 0) App.applyTag(App.tagTargetIdx, el('tagCustom').value);
+      }
+    };
+
     App.syncScale();
     if (window.addEventListener) window.addEventListener('resize', App.syncScale);
     App.openSetup();
@@ -374,6 +387,7 @@
     var chkAnon = el('chkAnon');
     App.anonMode = !!(chkAnon && chkAnon.checked);
     App.anonymRevealed = false;
+    App.seatTags = {};        // 每局重置：玩家手打的对桌标签
     App.syncAnonUi();
     var initialChips = 2000;
     var seats = [{ id: 'you', name: '你', isHuman: true, chips: initialChips }];
@@ -1121,7 +1135,59 @@
         div.appendChild(r);
       }
     }
+
+    // 玩家手打标签徽标（紧凶 / 浪 / 鱼 …）：点击座位即可编辑
+    var tag = App.seatTags ? App.seatTags[s.index] : null;
+    if (tag) {
+      var tg = document.createElement('div');
+      tg.className = 'seat-tag';
+      tg.textContent = '🏷 ' + tag;
+      tg.title = '点击座位可修改 / 清除标签';
+      div.appendChild(tg);
+    }
+    // 点击整个座位 → 打开标注弹窗（边打边记牌）
+    div.classList.add('taggable');
+    div.addEventListener('click', function () { App.openTag(s.index); });
     return div;
+  };
+
+  // ================= 对手标注（需求：点击座位打标签）=================
+  App.tagTargetIdx = -1;
+  var TAG_PRESETS = ['紧凶', '松凶', '紧弱', '松弱', '浪', '鱼', '岩石', 'GTO', '其他'];
+
+  /** 打开标注弹窗，针对座位 idx */
+  App.openTag = function (idx) {
+    var s = App.game && App.game.seats ? App.game.seats[idx] : null;
+    if (!s) return;
+    App.tagTargetIdx = idx;
+    var box = el('tagPresets');
+    box.innerHTML = '';
+    TAG_PRESETS.forEach(function (t) {
+      var b = document.createElement('button');
+      b.className = 'tag-preset' + (App.seatTags && App.seatTags[idx] === t ? ' on' : '');
+      b.textContent = t;
+      b.onclick = function () { App.applyTag(idx, t); };
+      box.appendChild(b);
+    });
+    el('tagTitle').textContent = '给「' + App.displayName(s) + '」打个标签，帮助边打边记牌';
+    el('tagCustom').value = (App.seatTags && App.seatTags[idx]) ? App.seatTags[idx] : '';
+    el('modalTag').classList.remove('hidden');
+  };
+
+  /** 写入 / 更新标签（text 为空则清除） */
+  App.applyTag = function (idx, text) {
+    text = (text || '').trim();
+    if (text) App.seatTags[idx] = text;
+    else delete App.seatTags[idx];
+    el('modalTag').classList.add('hidden');
+    if (App.game) App.render();
+  };
+
+  /** 清除标签 */
+  App.clearTag = function (idx) {
+    delete App.seatTags[idx];
+    el('modalTag').classList.add('hidden');
+    if (App.game) App.render();
   };
 
   function cardEl(card, small, fancy) {

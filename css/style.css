@@ -306,6 +306,20 @@ body {
 .seat-relation.grudge { background: #5a1f28; color: #ff9aa5; border: 1px solid #8a3341; }
 .seat-relation.bully { background: #1f4a3a; color: #7ee0bb; border: 1px solid #2f6a54; }
 
+/* 玩家手打标签徽标（紧凶 / 浪 / 鱼 …） */
+.seat.taggable { cursor: pointer; transition: outline-color .15s; outline: 1px dashed transparent; }
+.seat.taggable:hover { outline: 1px dashed rgba(255,255,255,.35); }
+.seat-tag {
+  margin-top: 5px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: linear-gradient(180deg, #ffd883, #f0a839);
+  color: #3a2700; font-size: 11px; font-weight: 800;
+  padding: 2px 8px; border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+
 /* ===== 筹码飞入动画（下注 / 赢钱沉浸感）===== */
 .chip {
   width: 16px; height: 16px;
@@ -607,6 +621,21 @@ body {
 }
 .close:hover { color: var(--text); transform: rotate(90deg); }
 .modal-sub { padding: 16px 26px 0; color: var(--muted); font-size: 15px; }
+/* 标注弹窗：预设标签 + 自定义 */
+.tag-presets { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 26px 0; }
+.tag-preset {
+  border: 1px solid #34465f; background: #16203a; color: #cdd9ec;
+  padding: 7px 14px; border-radius: 999px; cursor: pointer; font-size: 14px; font-weight: 600;
+  transition: all .12s;
+}
+.tag-preset:hover { border-color: var(--gold); color: #fff; }
+.tag-preset.on { background: var(--gold); color: #2a1c00; border-color: var(--gold); }
+.tag-custom { display: flex; gap: 8px; padding: 14px 26px 22px; }
+.tag-custom input {
+  flex: 1; min-width: 0; padding: 9px 12px; border-radius: 8px;
+  border: 1px solid var(--line); background: #0d1424; color: var(--text); font-size: 14px;
+}
+.tag-custom .btn { white-space: nowrap; }
 .modal-foot {
   padding: 18px 26px; border-top: 1px solid var(--line);
   display: flex; justify-content: space-between; align-items: center;
