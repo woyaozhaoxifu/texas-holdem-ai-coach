@@ -20,10 +20,12 @@ function ok(cond, msg) {
 }
 function seat(stats) { return { isHuman: false, stats: stats }; }
 
-log('== A hudData 派生（hands<5 → –；≥5 → 百分比；分母 0 → –）==');
+log('== A hudData 派生（hands=0 → –；≥1 → 百分比；分母 0 → –）==');
 ok(!!App && typeof App.hudData === 'function', 'ui.js 在 Node 环境可加载且暴露 App.hudData');
+var h0 = App.hudData(seat({ hands: 0, vpip: 0, pfr: 0, cBetFaced: 0, foldToCBet: 0, showdowns: 0 }));
+ok(!!h0 && h0.vpip === '–' && h0.pfr === '–', 'hands=0（未打过）→ 入池/加注显示 –');
 var h1 = App.hudData(seat({ hands: 3, vpip: 2, pfr: 1, cBetFaced: 0, foldToCBet: 0, showdowns: 0 }));
-ok(!!h1 && h1.vpip === '–' && h1.pfr === '–', 'hands=3（<5）→ 入池/加注显示 –');
+ok(!!h1 && h1.vpip === '67%' && h1.pfr === '33%', 'hands=3 → 第 1 手起就显示真实百分比（2/3→67%、1/3→33%）');
 var h2 = App.hudData(seat({ hands: 5, vpip: 2, pfr: 1, cBetFaced: 4, foldToCBet: 2, showdowns: 3 }));
 ok(!!h2 && h2.vpip === '40%' && h2.pfr === '20%', 'hands=5 边界：vpip=2/5→40%、pfr=1/5→20%');
 ok(!!h2 && h2.f2c === '50%', 'foldToCBet=2/4→50%');
@@ -44,7 +46,7 @@ ok(src.indexOf('hud-mini') >= 0 && src.indexOf('App.hudData') >= 0 && src.indexO
 var css = fs.readFileSync(path.join(D, 'css', 'style.css'), 'utf8');
 ok(css.indexOf('.hud-mini') >= 0, 'style.css 定义 .hud-mini 暗色小字样式');
 var bad = App.hudData(seat({ hands: 5, vpip: 1, pfr: 0, cBetFaced: 0, foldToCBet: 0, showdowns: 0 }));
-ok(bad.vpip === '20%' && bad.pfr === '0%', '边界：1/5→20%、0/5→0%（非 –，因为 hands≥5）');
+ok(bad.vpip === '20%' && bad.pfr === '0%', '边界：1/5→20%、0/5→0%（非 –，因为 hands≥1）');
 
 fs.writeFileSync(path.join(__dirname, '_hud_out.txt'), L.join('\n') + '\nFAILED=' + FAIL + '\n');
 process.exit(FAIL ? 1 : 0);

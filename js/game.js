@@ -320,6 +320,9 @@
     seat.bet += cost;
     seat.committed += cost;
     if (seat.chips <= 0 && !seat.allIn) { seat.allIn = true; seat._allinStreet = 'preflop'; }
+    // 给盲注打上动作标签，让座位徽章显示「大盲 20 / 小盲 10」而不是裸数字
+    var cn = kind === 'big' ? '大盲' : (kind === 'small' ? '小盲' : '盲注');
+    seat.lastAction = cn + ' ' + cost;
     this.emit('post', { seat: seat.index, amount: cost, kind: kind });
   };
 
@@ -329,6 +332,7 @@
     seat.chips -= cost;
     seat.committed += cost;
     if (seat.chips <= 0 && !seat.allIn) { seat.allIn = true; seat._allinStreet = 'preflop'; }
+    seat.lastAction = '前注 ' + cost;
     this.emit('post', { seat: seat.index, amount: cost, kind: 'ante' });
   };
 
@@ -540,7 +544,7 @@
       this.board.push(this.deck.pop());
     }
     // 新一轮下注
-    for (var k = 0; k < this.seats.length; k++) this.seats[k].bet = 0;
+    for (var k = 0; k < this.seats.length; k++) { this.seats[k].bet = 0; this.seats[k].lastAction = ''; }
     this.currentBet = 0;
     this.minRaise = this.bigBlind;
     this.raiseCount = 0;

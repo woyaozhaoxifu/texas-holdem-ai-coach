@@ -68,13 +68,23 @@
     el('btnFold').onclick = function () { App.playerAct('fold'); };
     el('btnCheck').onclick = function () { App.playerAct('check'); };
     el('btnCall').onclick = function () { App.playerAct('call'); };
-    el('btnRaise').onclick = function () { App.playerAct('raise', parseInt(el('raiseVal').dataset.value || '0', 10)); };
+    el('btnRaise').onclick = function () { App.syncRaise(true); App.playerAct('raise', App.raiseAmount()); };
     el('btnAllIn').onclick = function () { App.playerAct('allin'); };
     el('btnNext').onclick = function () { App.nextHand(); };
     el('btnHalfPot').onclick = function () { App.presetRaise(0.5); };
     el('btnTwoThirdPot').onclick = function () { App.presetRaise(0.67); };
     el('btnFullPot').onclick = function () { App.presetRaise(1.0); };
-    el('raiseRange').oninput = function () { App.syncRaise(); };
+    // 精确数值输入：输入中实时同步但不回写（避免打断输入），失焦 / 回车 / 点「加注」时才 clamp 回写
+    el('raiseInput').oninput = function () { App.syncRaise(false); };
+    el('raiseInput').onchange = function () { App.syncRaise(true); };
+    el('raiseInput').onkeydown = function (e) {
+      if (e.key === 'Enter') { App.syncRaise(true); App.playerAct('raise', App.raiseAmount()); }
+    };
+    // 步进按钮：±10 / ±100，按住可连续点，自动 clamp 到 [最小加注, 全下]
+    el('btnMinus100').onclick = function () { App.stepRaise(-100); };
+    el('btnMinus10').onclick = function () { App.stepRaise(-10); };
+    el('btnPlus10').onclick = function () { App.stepRaise(10); };
+    el('btnPlus100').onclick = function () { App.stepRaise(100); };
 
     el('rvPrev').onclick = function () { if (App.rvIdx > 0) App.showReview(App.rvIdx - 1); };
     el('rvNext').onclick = function () { if (App.rvIdx < App.reviews.length - 1) App.showReview(App.rvIdx + 1); };
@@ -95,11 +105,89 @@
     };
     el('chkOddsPin').onchange = function () { App.updateOddsPanel(); };
 
+    App.syncScale();
+    if (window.addEventListener) window.addEventListener('resize', App.syncScale);
     App.openSetup();
   };
 
   App.toast = function (msg) {
     App.log('<span class="hl">' + esc(msg) + '</span>');
+  };
+
+  /** 等比缩放：按可用区域把固定画布整体 transform scale（最大 1:1，不放大） */
+  App.syncScale = function () {
+    var host = el('scaleHost');
+    if (!host) return;
+    var baseW = 1280, baseH = 1000;
+    try {
+      if (typeof getComputedStyle === 'function') {
+        var cs = getComputedStyle(document.documentElement);
+        var w = parseFloat(cs.getPropertyValue('--table-base-w'));
+        var h = parseFloat(cs.getPropertyValue('--table-base-h'));
+        if (w > 0) baseW = w;
+        if (h > 0) baseH = h;
+      }
+    } catch (e) { /* 无头环境/个别浏览器缺 getComputedStyle 时用常量兜底 */ }
+    if (!host.clientWidth || !host.clientHeight) return;
+    var scale = Math.min(host.clientWidth / baseW, host.clientHeight / baseH, 1);
+    if (host.style && typeof host.style.setProperty === 'function') {
+      host.style.setProperty('--table-scale', Math.max(scale, 0.25).toFixed(4));
+    }
+  };
+
+  /** 筹码飞入动画：fromEl 中心 → toEl 中心，制造下注/赢钱的沉浸感。
+   *  当目标为底池时，落地的筹码会留在 #potChipsPile 堆里——"往桌子上放筹码"。 */
+  App.chipFly = function (fromEl, toEl, count, colors) {
+    if (!fromEl || !toEl) return;
+    var layer = document.querySelector('.chip-anim-layer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = 'chip-anim-layer';
+      document.body.appendChild(layer);
+    }
+    function center(e) {
+      var r = e.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    var f = center(fromEl), t = center(toEl);
+    var cols = colors && colors.length ? colors : ['red', 'blue', 'green', 'black'];
+    var n = Math.max(1, count || 4);
+    var isToPot = (toEl === el('pot'));
+    var pile = isToPot ? el('potChipsPile') : null;
+    for (var i = 0; i < n; i++) {
+      (function (k) {
+        var c = document.createElement('div');
+        var colorIdx = (k % cols.length) + 1;
+        c.className = 'chip ' + cols[k % cols.length];
+        var dx = (Math.random() - 0.5) * 30;
+        var dy = (Math.random() - 0.5) * 30;
+        c.style.left = (f.x + dx - 8) + 'px';
+        c.style.top = (f.y + dy - 8) + 'px';
+        layer.appendChild(c);
+        // 双 rAF：确保先完成初始绘制再触发过渡
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            var spread = 16;
+            var tx = (t.x - f.x - dx) + (Math.random() - 0.5) * spread;
+            var ty = (t.y - f.y - dy) + (Math.random() - 0.5) * spread;
+            c.style.transition = 'transform .55s cubic-bezier(.2,.6,.3,1), opacity .55s ease-out';
+            c.style.transform = 'translate(' + tx + 'px,' + ty + 'px) rotate(' + (180 + Math.random() * 360) + 'deg)';
+            c.style.opacity = '0';
+          });
+        });
+        setTimeout(function () {
+          if (c.parentNode) c.parentNode.removeChild(c);
+          // 落到底池 → 留下一枚筹码在桌上
+          if (isToPot && pile) {
+            var p = document.createElement('span');
+            p.className = 'pile-chip c' + colorIdx;
+            pile.appendChild(p);
+            // 超过 18 个就丢最早的（避免底池堆溢出）
+            while (pile.children.length > 18) pile.removeChild(pile.firstChild);
+          }
+        }, 620);
+      })(i);
+    }
   };
 
   // ================= 选桌 =================
@@ -164,6 +252,8 @@
     }
     App.revealAll = false;
     el('btnNext').classList.add('hidden');
+    var pile = el('potChipsPile');
+    if (pile) pile.innerHTML = '';   // 新一手：把上一手留在桌上的筹码清掉
     var ok = g.startHand();
     if (ok === false) {
       if (g.match && g.match.over) App.showFinal();
@@ -231,6 +321,14 @@
     App.showBubble(idx, d.reason || '……');
     var before = g.street;
     g.act(idx, d.action, d.raiseTo, d.reason);
+    // 沉浸感：AI 跟注/加注/全下 → 筹码从座位飞向底池，落到底池后留在桌上的筹码堆
+    if (d.action === 'call' || d.action === 'raise' || d.action === 'allin') {
+      var seatNode = document.querySelector('.seat[data-idx="' + idx + '"]');
+      if (seatNode) {
+        var n = d.action === 'raise' || d.action === 'allin' ? 5 : 3;
+        App.chipFly(seatNode, el('pot'), n, ['red', 'blue', 'green', 'black']);
+      }
+    }
     App.log(esc(seat.name) + ' <span class="act-' + (d.action === 'raise' || d.action === 'allin' ? 'raise' : d.action === 'fold' ? 'fold' : '') + '">' +
       actionCN(d.action) + (d.action === 'raise' || d.action === 'allin' ? ' ' + (d.raiseTo || d.amount) : (d.action === 'call' ? ' ' + d.amount : '')) + '</span>' +
       (d.reason ? ' <span class="reason">「' + esc(d.reason) + '」</span>' : ''));
@@ -247,6 +345,10 @@
     var amt = 0;
     if (action === 'raise') amt = Math.min(Math.max(raiseTo || legal.minRaiseTo, legal.minRaiseTo), legal.maxTo);
     g.act(g.playerIndex, action, amt, '');
+    // 沉浸感：投入筹码 → 筹码从手牌区飞向底池
+    if (action === 'call' || action === 'raise' || action === 'allin') {
+      App.chipFly(el('myHand'), el('pot'), 4, ['red', 'blue', 'green', 'black']);
+    }
     App.log('<b>你</b> ' + actionCN(action) + (amt ? ' ' + amt : ''));
     App.render();
     setTimeout(function () { App.loop(); }, 200);
@@ -262,34 +364,51 @@
     el('btnFold').disabled = false;
 
     var min = legal.minRaiseTo, max = legal.maxTo;
-    var range = el('raiseRange');
+    var num = el('raiseInput');
     if (max > min) {
-      range.min = min; range.max = max; range.step = 10;
-      // 默认滑块位置：底池 + 跟注的 ⅔ 处（接近标准 2.2-3BB 开局加注）
+      num.min = min; num.max = max; num.step = 1;
+      // 默认加注额：底池 + 跟注的 ⅔ 处（接近标准 2.2-3BB 开局加注）
       var defaultTarget = g.currentBet + Math.round((legal.pot + legal.toCall) * 0.67);
-      range.value = Math.max(min, Math.min(max, defaultTarget));
-      range.disabled = false;
+      num.value = Math.max(min, Math.min(max, defaultTarget));
+      num.disabled = false;
       el('btnRaise').disabled = false;
       el('btnHalfPot').disabled = false;
       el('btnTwoThirdPot').disabled = false;
       el('btnFullPot').disabled = false;
     } else {
-      range.disabled = true;
+      num.disabled = true;
       el('btnRaise').disabled = true;
       el('btnHalfPot').disabled = true;
       el('btnTwoThirdPot').disabled = true;
       el('btnFullPot').disabled = true;
-      range.value = min;
+      num.value = min;
     }
-    App.syncRaise();
+    App.syncRaise(true);
     App.showCoachTip();
     App.render();
   };
 
-  App.syncRaise = function () {
-    var v = parseInt(el('raiseRange').value, 10);
-    el('raiseVal').textContent = v;
-    el('raiseVal').dataset.value = v;
+  /** 同步加注数值：clamp 到 [min,max] 并存进 dataset。
+   *  @param {boolean=} writeBack 是否把 clamp 结果回写输入框——输入过程中不要回写，否则会打断用户打字 */
+  App.syncRaise = function (writeBack) {
+    var num = el('raiseInput');
+    if (!num) return;
+    var lo = parseInt(num.min, 10), hi = parseInt(num.max, 10);
+    var v = parseInt(num.value, 10);
+    if (isNaN(v)) v = isNaN(lo) ? 0 : lo;
+    if (!isNaN(lo) && v < lo) v = lo;
+    if (!isNaN(hi) && v > hi) v = hi;
+    num.dataset.value = v;
+    if (writeBack) num.value = v;
+  };
+
+  /** 当前输入框里的加注额（已 clamp） */
+  App.raiseAmount = function () {
+    var num = el('raiseInput');
+    if (!num) return 0;
+    var v = parseInt(num.dataset.value, 10);
+    if (isNaN(v)) v = parseInt(num.value, 10);
+    return isNaN(v) ? 0 : v;
   };
 
   /** 按底池倍数快速设置加注额（½ 池 / ⅔ 池 / 底池） */
@@ -299,13 +418,27 @@
     var legal = g.legalActions(g.playerIndex);
     var stdTarget = g.currentBet + Math.round((legal.pot + legal.toCall) * frac);
     var target = Math.max(legal.minRaiseTo, Math.min(legal.maxTo, stdTarget));
-    el('raiseRange').value = target;
-    App.syncRaise();
+    el('raiseInput').value = target;
+    App.syncRaise(true);
+  };
+
+  /** 步进调整加注额：+/-10、+/-100（自动 clamp 到合法区间） */
+  App.stepRaise = function (delta) {
+    var num = el('raiseInput');
+    if (!num) return;
+    var v = parseInt(num.dataset.value, 10);
+    if (isNaN(v)) v = parseInt(num.value, 10);
+    if (isNaN(v)) v = parseInt(num.min, 10);
+    if (isNaN(v)) v = 0;
+    num.value = v + delta;
+    App.syncRaise(true);
   };
 
   App.disableControls = function (disabled) {
-    ['btnFold', 'btnCheck', 'btnCall', 'btnRaise', 'btnAllIn', 'btnHalfPot', 'btnTwoThirdPot', 'btnFullPot', 'raiseRange'].forEach(function (id) {
-      el(id).disabled = disabled;
+    ['btnFold', 'btnCheck', 'btnCall', 'btnRaise', 'btnAllIn', 'btnHalfPot', 'btnTwoThirdPot', 'btnFullPot',
+      'raiseInput', 'btnMinus100', 'btnMinus10', 'btnPlus10', 'btnPlus100'].forEach(function (id) {
+      var n = el(id);
+      if (n) n.disabled = disabled;
     });
   };
 
@@ -375,11 +508,17 @@
     if (d.beats.length) {
       var top = d.beats.slice(0, 5);
       var chips = '';
+      var loses = d.loses || 1;
       for (var i = 0; i < top.length; i++) {
         var b = top[i];
-        chips += '<span class="odds-chip">' + esc(b.name) + ' ' + b.count + '（' + (b.pct * 100).toFixed(1) + '%）</span>';
+        // 你也是高牌时，输给“高牌”实际上是输给更大的踢脚，文案要说明白
+        var chipName = (b.rank === 0 && d.myMadeRank === 0) ? '高牌（踢脚更大）' : b.name;
+        // 百分比 = 该牌型在“会输我的牌”里的占比，这样所有芯片加起来是 100%，更直观
+        var condPct = (b.count / loses * 100).toFixed(1);
+        chips += '<span class="odds-chip">' + esc(chipName) + ' ' + b.count + '（' + condPct + '%）</span>';
       }
       html += '<div class="odds-beats">' + chips + '</div>';
+      html += '<div class="odds-note">百分比 = 该牌型在“会输我的牌”里占比</div>';
     } else {
       html += '<div class="odds-none">当前牌面没有对手能赢你</div>';
     }
@@ -434,6 +573,11 @@
     App.disableControls(true);
     App.revealAll = true;
     App.render();
+
+    // 沉浸感：本手赢了 → 筹码从底池飞回手牌区
+    if (result && result.playerDelta > 0) {
+      setTimeout(function () { App.chipFly(el('pot'), el('myHand'), 6, ['red', 'blue', 'green', 'black', 'blue', 'red']); }, 200);
+    }
 
     if (result) {
       var winners = result.winners || [];
@@ -608,6 +752,7 @@
     el('streetLabel').textContent = g.streetCN(g.street);
     el('myChips').textContent = g.seats[g.playerIndex].chips;
     App.updateOddsPanel();
+    App.syncScale();
   };
 
   /** 桌面上的玩家大牌区（座位从座排行里移到这里，牌翻开朝上） */
@@ -681,9 +826,9 @@
     var st = s && s.stats;
     if (!st) return null;
     var hands = st.hands || 0;
-    var dash = '–';
-    var vpipTxt = dash, pfrTxt = dash, f2cTxt = dash;
-    if (hands >= 5) {
+    var vpipTxt = '–', pfrTxt = '–', f2cTxt = '–';
+    if (hands >= 1) {
+      // 1 手起就显示真实百分比（早期波动大但比"啥也不显示"更直观）
       vpipTxt = Math.round((st.vpip || 0) / hands * 100) + '%';
       pfrTxt = Math.round((st.pfr || 0) / hands * 100) + '%';
       if ((st.cBetFaced || 0) > 0) f2cTxt = Math.round((st.foldToCBet || 0) / st.cBetFaced * 100) + '%';
@@ -765,10 +910,18 @@
     }
 
     if (s.bet > 0) {
+      var betText = s.lastAction || s.bet;
       var bet = document.createElement('div');
       bet.className = 'seat-bet';
-      bet.textContent = s.bet;
+      bet.innerHTML = '<span class="chip-icon"></span> ' + esc(betText);
       div.appendChild(bet);
+    }
+    // 过牌：单独一个小状态徽标（与弃牌/全下徽标并列，但不与主下注徽标冲突）
+    if (s.lastAction === '过牌' && !s.folded && !s.allIn) {
+      var chk = document.createElement('div');
+      chk.className = 'seat-status check';
+      chk.textContent = '过牌';
+      div.appendChild(chk);
     }
     if (s.allIn && !s.folded) {
       var st = document.createElement('div');

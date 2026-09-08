@@ -4,7 +4,10 @@
 <meta charset="UTF-8" data-page-node-id="2AKHwnR8Po5wY9MTVgX3p1">
 <meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="g6J6YHCBmwP22BIaDM02WE">
 <title>德州扑克 AI 对战 · 教学复盘</title>
-<link rel="stylesheet" href="css/style.css" data-page-node-id="Qng2ec79wV9W0CqTOsmkqG">
+  <link rel="stylesheet" href="css/style.css" data-page-node-id="Qng2ec79wV9W0CqTOsmkqG">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1419">
+  <link rel="apple-touch-icon" href="icon.svg">
 </head>
 <body data-page-node-id="1wGw1ZPL4I6fkrhmBt2zzK">
 
@@ -20,13 +23,14 @@
   </div>
 </header>
 
+<div class="scale-host" id="scaleHost">
 <main class="table-area" data-page-node-id="eBSjuzmdo2o9zST1xDTlTU">
   <div class="felt" data-page-node-id="wildHW8qq58z55BcMm7W2O">
     <div class="seat-row top" id="rowTop" data-page-node-id="oBtyDDTyce7ncGTaQFgBWy"></div>
 
     <div class="center" data-page-node-id="YEIykc2J3yHl7RNgSdtDmS">
       <div class="board" id="board" data-page-node-id="C1dxp76XfekQKJS0FLO4O4"></div>
-      <div class="pot-line" data-page-node-id="v0Sn6zstorwva3Uz8njMrk">底池 <b id="pot" data-page-node-id="Xlrf2u5kW3f3ZEc91ddsMF">0</b></div>
+      <div class="pot-line" data-page-node-id="v0Sn6zstorwva3Uz8njMrk">底池 <b id="pot" data-page-node-id="Xlrf2u5kW3f3ZEc91ddsMF">0</b><span class="pot-chips-pile" id="potChipsPile"></span></div>
       <div class="street-line" id="streetLabel" data-page-node-id="Cd81KNrzHVeBT608YgfBzM"></div>
     </div>
 
@@ -43,17 +47,23 @@
         <button class="btn fold" id="btnFold" data-page-node-id="VCbT3auT681E9I83OLQMR6">弃牌</button>
         <button class="btn check" id="btnCheck" data-page-node-id="WyWT6josQ0d382EdlQ1H2R">过牌</button>
         <button class="btn call" id="btnCall" data-page-node-id="1AnuQBfzBd5EhDXJyRVP2F">跟注</button>
+        <button class="btn allin" id="btnAllIn" data-page-node-id="cLOVtYZqbPK2VpurgqJ0uA">全下</button>
         <div class="raise-box" data-page-node-id="wHFPG6xtE8Ae6iPlWc3FhK">
           <div class="preset-raise" data-page-node-id="pR1">
             <button class="btn ghost small" id="btnHalfPot" data-page-node-id="pRH">½池</button>
             <button class="btn ghost small" id="btnTwoThirdPot" data-page-node-id="pRT">⅔池</button>
             <button class="btn ghost small" id="btnFullPot" data-page-node-id="pRF">底池</button>
           </div>
-          <input type="range" id="raiseRange" min="0" max="100" value="0" data-page-node-id="E1bWnvbSBjeABGvpGwfXZN">
-          <span class="raise-val" id="raiseVal" data-page-node-id="Q5BsWKChBsDxSjhGEIARKe">0</span>
+          <div class="raise-stepper">
+            <button class="btn ghost tiny" id="btnMinus100" title="减 100">-100</button>
+            <button class="btn ghost tiny" id="btnMinus10" title="减 10">-10</button>
+            <span class="raise-cur">¥</span>
+            <input type="number" id="raiseInput" min="0" max="100" step="1" value="0" inputmode="numeric" aria-label="加注金额">
+            <button class="btn ghost tiny" id="btnPlus10" title="加 10">+10</button>
+            <button class="btn ghost tiny" id="btnPlus100" title="加 100">+100</button>
+          </div>
           <button class="btn raise" id="btnRaise" data-page-node-id="HokDdKX7As7CbA7tn5hCC7">加注</button>
         </div>
-        <button class="btn allin" id="btnAllIn" data-page-node-id="cLOVtYZqbPK2VpurgqJ0uA">全下</button>
         <button class="btn primary hidden" id="btnNext" data-page-node-id="7OGVwQgNDA19E8MCBSg5KF">下一手</button>
       </div>
     </div>
@@ -76,6 +86,7 @@
     <div class="log" id="log" data-page-node-id="FyVMDY400ZIC6jgKBeFoyT"></div>
   </aside>
 </main>
+</div><!-- /scale-host -->
 
 <!-- 选桌 -->
 <div class="modal hidden" id="modalSetup" data-page-node-id="vUT0zzd2W1CxD3rPxV0Df9">
@@ -164,6 +175,16 @@
 <script src="js/coach.js"></script>
 <script src="js/review.js"></script>
 <script src="js/ui.js"></script>
-<script src="js/main.js"></script>
+  <script src="js/main.js"></script>
+  <script>
+    // PWA：仅在 http/https 下注册 Service Worker（file:// 双击打开时无 SW，不影响游玩）
+    if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function (e) {
+          console.warn('SW 注册失败（不影响游戏）:', e);
+        });
+      });
+    }
+  </script>
 </body>
 </html>
