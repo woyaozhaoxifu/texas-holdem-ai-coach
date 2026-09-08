@@ -31,7 +31,9 @@
     bubbleTimer: null,
     oddsKey: '',          // 胜率助手缓存键（街/牌面/对手数变化才重算）
     oddsCache: null,      // 最近一次 oddsPanel 结果
-    oddsCollapsed: false  // 用户手动折叠
+    oddsCollapsed: false, // 用户手动折叠
+    anonMode: false,      // 匿名桌：隐藏对手身份（选桌时勾选，开局生效）
+    anonymRevealed: false // 匿名桌：身份是否已揭晓（全局、不可逆）
   };
 
   // 比赛盲注升级表（第 N 轮取第 N 档；第 6 档起带 Ante = BB×10% 向上取整到 5）
@@ -41,6 +43,93 @@
     { sb: 150, bb: 300, ante: 30 }, { sb: 250, bb: 500, ante: 50 },
     { sb: 400, bb: 800, ante: 80 }, { sb: 600, bb: 1200, ante: 120 }
   ];
+
+  // 筹码面额体系（盲注 10/20、起始筹码 2000 均可整除：10=2×5，20=4×5，2000=2×1000）
+  var CHIP_DENOMS = [
+    { v: 1000, cls: 'den-1000', label: '1000' },
+    { v: 500,  cls: 'den-500',  label: '500'  },
+    { v: 100,  cls: 'den-100',  label: '100'  },
+    { v: 25,   cls: 'den-25',   label: '25'   },
+    { v: 5,    cls: 'den-5',    label: '5'    }
+  ];
+
+  /** 按面额取配色/文案（未知面额退回最小面额外观） */
+  function denomMeta(v) {
+    for (var i = 0; i < CHIP_DENOMS.length; i++) {
+      if (CHIP_DENOMS[i].v === v) return CHIP_DENOMS[i];
+    }
+    return { v: v, cls: 'den-5', label: String(v) };
+  }
+
+  // ================= 匿名桌（需求 C）=================
+  // 对手代号：座位 1..5 → 东家 / 南家 / 西家 / 北家 / 中家（统一面具头像）
+  var ANON_CODES = ['东家', '南家', '西家', '北家', '中家'];
+  var ANON_AVATAR = '🎭';
+
+  /** 座位号 → 方位代号（座位 1 起；越界取模，保证永远有值） */
+  App.anonCode = function (idx) {
+    var i = (typeof idx === 'number' && idx >= 1) ? ((idx - 1) % ANON_CODES.length) : 0;
+    return ANON_CODES[i];
+  };
+
+  /** 把「座位对象 / 座位号 / 榜单行 / 复盘条目」统一解析成座位对象 */
+  function resolveSeat(seat) {
+    var g = App.game;
+    var s = seat;
+    if (typeof seat === 'number') s = (g && g.seats) ? g.seats[seat] : null;
+    if (s && typeof s === 'object') {
+      var idx = (typeof s.index === 'number') ? s.index : (typeof s.seatIndex === 'number' ? s.seatIndex : -1);
+      if (idx >= 0 && g && g.seats && g.seats[idx]) s = g.seats[idx];
+    }
+    return s || null;
+  }
+
+  /** 是否正处于「隐藏身份」状态（开了匿名桌且还没揭晓） */
+  App.anonActive = function () {
+    return !!(App.anonMode && !App.anonymRevealed);
+  };
+
+  /** 匿名桌：某座位当前应显示的名字。
+   *  人类永远显示真名；匿名且未揭晓时，AI 显示方位代号。
+   *  @param {object|number} seat 座位对象（含 name 与 index/seatIndex）或座位号 */
+  App.displayName = function (seat) {
+    var s = resolveSeat(seat);
+    if (!s) return '';
+    if (s.isHuman) return s.name || '你';
+    if (App.anonActive()) {
+      var i = (typeof s.index === 'number') ? s.index : (typeof s.seatIndex === 'number' ? s.seatIndex : -1);
+      if (i >= 0) return App.anonCode(i);
+    }
+    return s.name || '';
+  };
+
+  /** 匿名桌：某座位当前应显示的头像（匿名未揭晓的 AI 统一面具） */
+  App.anonAvatar = function (seat) {
+    var s = resolveSeat(seat);
+    if (!s) return '';
+    if (s.isHuman) return s.avatar || '🙂';
+    if (App.anonActive()) return ANON_AVATAR;
+    return s.avatar || '🤖';
+  };
+
+  /** 揭晓身份：全局且不可逆（点按钮，或比赛轮末 / 终局自动调用）
+   *  @param {boolean=} auto true = 比赛自动揭晓（日志加说明） */
+  App.revealIdentities = function (auto) {
+    if (!App.anonMode || App.anonymRevealed) return false;
+    App.anonymRevealed = true;
+    App.syncAnonUi();
+    App.log('🕵️ 身份已揭晓' + (auto ? '（比赛结算自动揭晓）' : ''), 'hl');
+    if (App.game) App.render();
+    return true;
+  };
+
+  /** 顶栏「揭晓身份」按钮：仅匿名桌且未揭晓时显示 */
+  App.syncAnonUi = function () {
+    var b = el('btnReveal');
+    if (!b || !b.classList) return;
+    if (App.anonActive()) b.classList.remove('hidden');
+    else b.classList.add('hidden');
+  };
 
   // ================= 初始化 =================
   App.init = function () {
@@ -105,6 +194,9 @@
     };
     el('chkOddsPin').onchange = function () { App.updateOddsPanel(); };
 
+    var rv = el('btnReveal');
+    if (rv) rv.onclick = function () { App.revealIdentities(false); };
+
     App.syncScale();
     if (window.addEventListener) window.addEventListener('resize', App.syncScale);
     App.openSetup();
@@ -135,9 +227,63 @@
     }
   };
 
+  /** 把金额贪心拆成各面额筹码。
+   *  @param {number} amount 金额（整数）
+   *  @return {Array<{v:number,n:number}>} [{v:1000,n:2},{v:100,n:1},...]，只含 n>0 的面额；
+   *          amount 非数字 / NaN / <=0 → []
+   *  例：120 → [{v:100,n:1},{v:5,n:4}]；2000 → [{v:1000,n:2}]；0 → [] */
+  App.chipBreakdown = function (amount) {
+    var left = Math.floor(Number(amount));
+    if (!isFinite(left) || left <= 0) return [];
+    var out = [];
+    for (var i = 0; i < CHIP_DENOMS.length; i++) {
+      var d = CHIP_DENOMS[i];
+      var n = Math.floor(left / d.v);
+      if (n > 0) {
+        out.push({ v: d.v, n: n });
+        left -= n * d.v;
+      }
+    }
+    return out;
+  };
+
+  /** 座位下注徽标里的小筹码图标：取该注码拆解出的主面额（最大面额优先，最多 3 枚） */
+  App.betChipHtml = function (amount) {
+    var parts = App.chipBreakdown(amount);
+    if (!parts.length) return '<span class="chip-icon"></span>';
+    var html = '';
+    for (var i = 0; i < parts.length && i < 3; i++) {
+      html += '<i class="chip-icon ' + denomMeta(parts[i].v).cls + '"></i>';
+    }
+    return html;
+  };
+
+  /** 底池筹码堆：按面额分"摞"渲染（每摞最多 5 枚，超出在摞下方标 ×N）。
+   *  由真实底池金额驱动（App.render 每次重绘），因此与底池数字永远一致。 */
+  App.renderPotChips = function (amount) {
+    var pile = el('potChipsPile');
+    if (!pile) return;
+    var parts = App.chipBreakdown(amount);
+    var html = '';
+    for (var i = 0; i < parts.length && i < 5; i++) {
+      var meta = denomMeta(parts[i].v);
+      var n = parts[i].n;
+      var show = Math.min(n, 5);
+      var chips = '';
+      for (var k = 0; k < show; k++) chips += '<i class="pile-chip ' + meta.cls + '"></i>';
+      html += '<span class="pin-stack" title="面额 ' + meta.label + ' × ' + n + ' = ' + (meta.v * n) + '">' +
+        '<span class="pin-stack-chips">' + chips + '</span>' +
+        '<span class="pin-stack-foot"><span class="pin-stack-label">' + meta.label + '</span>' +
+        (n > 5 ? '<span class="pin-stack-count">×' + n + '</span>' : '') +
+        '</span></span>';
+    }
+    pile.innerHTML = html;
+  };
+
   /** 筹码飞入动画：fromEl 中心 → toEl 中心，制造下注/赢钱的沉浸感。
-   *  当目标为底池时，落地的筹码会留在 #potChipsPile 堆里——"往桌子上放筹码"。 */
-  App.chipFly = function (fromEl, toEl, count, colors) {
+   *  筹码由 amount 的真实面额拆解生成（大面额先飞），总枚数上限 10 枚；
+   *  amount <= 0 / 非数字 → 退化为 4 枚灰色筹码（兼容兜底，不崩）。 */
+  App.chipFly = function (fromEl, toEl, amount) {
     if (!fromEl || !toEl) return;
     var layer = document.querySelector('.chip-anim-layer');
     if (!layer) {
@@ -150,43 +296,46 @@
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }
     var f = center(fromEl), t = center(toEl);
-    var cols = colors && colors.length ? colors : ['red', 'blue', 'green', 'black'];
-    var n = Math.max(1, count || 4);
-    var isToPot = (toEl === el('pot'));
-    var pile = isToPot ? el('potChipsPile') : null;
-    for (var i = 0; i < n; i++) {
-      (function (k) {
+    // 按面额拆出飞行筹码（大面额在前），上限 10 枚
+    var parts = App.chipBreakdown(amount);
+    var plan = [];
+    for (var i = 0; i < parts.length && plan.length < 10; i++) {
+      var take = Math.min(parts[i].n, 10 - plan.length);
+      for (var k = 0; k < take; k++) plan.push(denomMeta(parts[i].v));
+    }
+    if (!plan.length) {
+      // 兜底：金额无效时仍飞 4 枚灰筹码，保证不崩
+      var gray = { v: 0, cls: 'den-gray', label: '' };
+      plan = [gray, gray, gray, gray];
+    }
+    for (var j = 0; j < plan.length; j++) {
+      (function (meta, order) {
         var c = document.createElement('div');
-        var colorIdx = (k % cols.length) + 1;
-        c.className = 'chip ' + cols[k % cols.length];
+        c.className = 'chip ' + meta.cls;
         var dx = (Math.random() - 0.5) * 30;
         var dy = (Math.random() - 0.5) * 30;
         c.style.left = (f.x + dx - 8) + 'px';
         c.style.top = (f.y + dy - 8) + 'px';
         layer.appendChild(c);
-        // 双 rAF：确保先完成初始绘制再触发过渡
-        requestAnimationFrame(function () {
+        var start = function () {
+          // 双 rAF：确保先完成初始绘制再触发过渡
           requestAnimationFrame(function () {
-            var spread = 16;
-            var tx = (t.x - f.x - dx) + (Math.random() - 0.5) * spread;
-            var ty = (t.y - f.y - dy) + (Math.random() - 0.5) * spread;
-            c.style.transition = 'transform .55s cubic-bezier(.2,.6,.3,1), opacity .55s ease-out';
-            c.style.transform = 'translate(' + tx + 'px,' + ty + 'px) rotate(' + (180 + Math.random() * 360) + 'deg)';
-            c.style.opacity = '0';
+            requestAnimationFrame(function () {
+              var spread = 16;
+              var tx = (t.x - f.x - dx) + (Math.random() - 0.5) * spread;
+              var ty = (t.y - f.y - dy) + (Math.random() - 0.5) * spread;
+              c.style.transition = 'transform .55s cubic-bezier(.2,.6,.3,1), opacity .55s ease-out';
+              c.style.transform = 'translate(' + tx + 'px,' + ty + 'px) rotate(' + (180 + Math.random() * 360) + 'deg)';
+              c.style.opacity = '0';
+            });
           });
-        });
+        };
+        if (order > 0) setTimeout(start, order * 45);   // 大面额先飞，逐枚错开
+        else start();
         setTimeout(function () {
           if (c.parentNode) c.parentNode.removeChild(c);
-          // 落到底池 → 留下一枚筹码在桌上
-          if (isToPot && pile) {
-            var p = document.createElement('span');
-            p.className = 'pile-chip c' + colorIdx;
-            pile.appendChild(p);
-            // 超过 18 个就丢最早的（避免底池堆溢出）
-            while (pile.children.length > 18) pile.removeChild(pile.firstChild);
-          }
-        }, 620);
-      })(i);
+        }, 700 + order * 45);
+      })(plan[j], j);
     }
   };
 
@@ -221,6 +370,11 @@
     App.mode = mode;
     el('modalSetup').classList.add('hidden');
     var matchMode = mode === 'match';
+    // 匿名桌：从选桌弹窗读开关（开局生效，整局不变；揭晓状态每局重置）
+    var chkAnon = el('chkAnon');
+    App.anonMode = !!(chkAnon && chkAnon.checked);
+    App.anonymRevealed = false;
+    App.syncAnonUi();
     var initialChips = 2000;
     var seats = [{ id: 'you', name: '你', isHuman: true, chips: initialChips }];
     ids.forEach(function (id) {
@@ -238,7 +392,9 @@
     App.busy = false;
     el('log').innerHTML = '';
     App.syncHeader();
-    var foes = ids.map(function (i) { return Personalities.get(i).name; }).join('、');
+    var foes = ids.map(function (i, k) {
+      return App.anonActive() ? App.anonCode(k + 1) : Personalities.get(i).name;   // 座位从 1 开始
+    }).join('、');
     App.log('牌局开始：你 vs ' + foes + (matchMode ? '（比赛模式 · 每轮 15 手 · 盲注升级 · 无补筹）' : '（练习模式 · 无限手）'));
     App.nextHand();
   };
@@ -320,16 +476,15 @@
     App._aiDecision = null;
     App.showBubble(idx, d.reason || '……');
     var before = g.street;
+    var c0 = seat.committed;
     g.act(idx, d.action, d.raiseTo, d.reason);
-    // 沉浸感：AI 跟注/加注/全下 → 筹码从座位飞向底池，落到底池后留在桌上的筹码堆
+    // 沉浸感：AI 跟注/加注/全下 → 按本次真实投入额把筹码从座位飞向底池
     if (d.action === 'call' || d.action === 'raise' || d.action === 'allin') {
       var seatNode = document.querySelector('.seat[data-idx="' + idx + '"]');
-      if (seatNode) {
-        var n = d.action === 'raise' || d.action === 'allin' ? 5 : 3;
-        App.chipFly(seatNode, el('pot'), n, ['red', 'blue', 'green', 'black']);
-      }
+      var invested = seat.committed - c0;   // committed 是每手累计，跨街切换也不会被清零
+      if (seatNode && invested > 0) App.chipFly(seatNode, el('pot'), invested);
     }
-    App.log(esc(seat.name) + ' <span class="act-' + (d.action === 'raise' || d.action === 'allin' ? 'raise' : d.action === 'fold' ? 'fold' : '') + '">' +
+    App.log(esc(App.displayName(seat)) + ' <span class="act-' + (d.action === 'raise' || d.action === 'allin' ? 'raise' : d.action === 'fold' ? 'fold' : '') + '">' +
       actionCN(d.action) + (d.action === 'raise' || d.action === 'allin' ? ' ' + (d.raiseTo || d.amount) : (d.action === 'call' ? ' ' + d.amount : '')) + '</span>' +
       (d.reason ? ' <span class="reason">「' + esc(d.reason) + '」</span>' : ''));
     if (g.street !== before) App.log('★ ' + g.streetCN(g.street) + '：' + Cards.cardsText(g.board), 'hl');
@@ -344,10 +499,12 @@
     var legal = g.legalActions(g.playerIndex);
     var amt = 0;
     if (action === 'raise') amt = Math.min(Math.max(raiseTo || legal.minRaiseTo, legal.minRaiseTo), legal.maxTo);
+    var me0 = g.seats[g.playerIndex].committed;
     g.act(g.playerIndex, action, amt, '');
-    // 沉浸感：投入筹码 → 筹码从手牌区飞向底池
+    // 沉浸感：投入筹码 → 按本次真实投入额把筹码从手牌区飞向底池
     if (action === 'call' || action === 'raise' || action === 'allin') {
-      App.chipFly(el('myHand'), el('pot'), 4, ['red', 'blue', 'green', 'black']);
+      var invested = g.seats[g.playerIndex].committed - me0;
+      if (invested > 0) App.chipFly(el('myHand'), el('pot'), invested);
     }
     App.log('<b>你</b> ' + actionCN(action) + (amt ? ' ' + amt : ''));
     App.render();
@@ -574,16 +731,21 @@
     App.revealAll = true;
     App.render();
 
-    // 沉浸感：本手赢了 → 筹码从底池飞回手牌区
+    // 沉浸感：本手赢了 → 按真实赢得的金额把筹码从底池飞回手牌区
     if (result && result.playerDelta > 0) {
-      setTimeout(function () { App.chipFly(el('pot'), el('myHand'), 6, ['red', 'blue', 'green', 'black', 'blue', 'red']); }, 200);
+      var winAmt = 0;
+      (result.winners || []).forEach(function (w) {
+        if (w.seatIndex === g.playerIndex) winAmt += w.amount;
+      });
+      if (winAmt <= 0) winAmt = result.playerDelta;
+      setTimeout(function () { App.chipFly(el('pot'), el('myHand'), winAmt); }, 200);
     }
 
     if (result) {
       var winners = result.winners || [];
       if (winners.length) {
         var txt = winners.map(function (w) {
-          return esc(w.name) + ' 赢 ' + w.amount + (w.handName ? '（' + esc(w.handName) + '）' : '');
+          return esc(App.displayName(w)) + ' 赢 ' + w.amount + (w.handName ? '（' + esc(w.handName) + '）' : '');
         }).join('、');
         App.log('★ ' + txt, 'act-win');
       }
@@ -631,10 +793,11 @@
   App.showRoundResult = function () {
     var g = App.game;
     if (!g || !g.match) return;
+    App.revealIdentities(true);   // 比赛：每轮结算自动揭晓
     var standings = g.match.lastStandings || g.finalStandings();
     el('rRoundNo').textContent = g.match.roundNo;
     var elimNames = (g.match.roundBustOrder || []).map(function (i) {
-      return g.seats[i] ? g.seats[i].name : '';
+      return g.seats[i] ? App.displayName(g.seats[i]) : '';
     }).filter(function (n) { return n; }).join('、');
     var subTxt = '盲注 ' + g.smallBlind + ' / ' + g.bigBlind;
     if (g.ante > 0) subTxt += ' · Ante ' + g.ante;
@@ -644,7 +807,7 @@
     el('roundBody').innerHTML = html;
     var top = standings[0];
     el('roundLeader').innerHTML = top && !top.eliminated
-      ? '本轮领先：<b>' + esc(top.name) + '</b>　筹码 ¥' + top.chips
+      ? '本轮领先：<b>' + esc(App.displayName(top)) + '</b>　筹码 ¥' + top.chips
       : '';
     // 只剩 1 人时不应走轮次弹窗（会直接进最终排名），此处保险起见
     var quit = el('btnMatchQuit'), nxt = el('btnNextRound');
@@ -675,13 +838,14 @@
   App.showFinal = function () {
     var g = App.game;
     if (!g) return;
+    App.revealIdentities(true);   // 比赛结束自动揭晓
     var standings = g.finalStandings();
     var champ = standings[0] || null;
     var html = '';
     if (champ) {
       html += '<div class="final-hero">' +
-        '<div class="fa-avatar">' + (champ.avatar || (champ.isHuman ? '🙂' : '🤖')) + '</div>' +
-        '<div class="fa-title">' + (champ.isHuman ? '你' : esc(champ.name)) + ' 夺冠</div>' +
+        '<div class="fa-avatar">' + App.anonAvatar(champ) + '</div>' +
+        '<div class="fa-title">' + esc(App.displayName(champ)) + ' 夺冠</div>' +
         '<div class="fa-sub">累计积分 ' + champ.totalPts + ' · 剩余筹码 ¥' + champ.chips + '</div>' +
         '</div>';
     }
@@ -701,6 +865,9 @@
     App.reviews = [];
     App.mode = 'practice';
     App.busy = false;
+    App.anonMode = false;
+    App.anonymRevealed = false;
+    App.syncAnonUi();
     el('roundTag').classList.add('hidden');
     App.openSetup();
   };
@@ -723,8 +890,8 @@
     var rowCls = 'stand-row';
     if (row.isHuman) rowCls += ' me';
     if (row.eliminated) rowCls += ' out';
-    var nameHtml = esc(row.name) + (row.isHuman ? '<span class="y-badge">你</span>' : '');
-    var avatar = row.avatar || (row.isHuman ? '🙂' : '🤖');
+    var nameHtml = esc(App.displayName(row)) + (row.isHuman ? '<span class="y-badge">你</span>' : '');
+    var avatar = App.anonAvatar(row);
     var html = '<div class="' + rowCls + '">' +
       '<span class="stand-rank' + rankCls + '">' + row.rank + '</span>' +
       '<span class="stand-avatar">' + avatar + '</span>' +
@@ -749,6 +916,7 @@
     App.renderBoard();
     App.renderMyHand();
     el('pot').textContent = g.potTotal();
+    App.renderPotChips(g.potTotal());
     el('streetLabel').textContent = g.streetCN(g.street);
     el('myChips').textContent = g.seats[g.playerIndex].chips;
     App.updateOddsPanel();
@@ -864,6 +1032,9 @@
     if (s.index === g.currentActor && !g.isHandOver) div.className += ' active';
     if (s.folded) div.className += ' folded';
     if (s.isHuman) div.className += ' is-me';
+    // 匿名桌：AI 换成代号 + 面具头像，并隐藏人格风格（HUD 统计照常显示）
+    var anon = App.anonActive() && !s.isHuman;
+    if (anon) div.className += ' anon';
 
     var p = s.personality;
     var moodCls = '';
@@ -874,12 +1045,16 @@
     // C2 迷你 HUD：对手客观数据徽标（仅 bot；hands<5 显示 –）
     var hud = (p && !s.isHuman) ? App.hudData(s) : null;
 
+    var styleHtml = anon
+      ? ''   // 匿名：不显示人格风格（否则等于泄底）
+      : (p ? '<div class="seat-style">' + Personalities.stars(p.difficulty) + ' ' + esc(p.style) + '</div>'
+        : '<div class="seat-style">你</div>');
+
     var html = '<div class="seat-top">' +
-      '<span class="avatar">' + (s.avatar || (s.isHuman ? '🙂' : '🤖')) + '</span>' +
+      '<span class="avatar">' + App.anonAvatar(s) + '</span>' +
       '<div style="min-width:0">' +
-      '<div class="seat-name">' + esc(s.name) + '</div>' +
-      (p ? '<div class="seat-style">' + Personalities.stars(p.difficulty) + ' ' + esc(p.style) + '</div>'
-        : '<div class="seat-style">你</div>') +
+      '<div class="seat-name">' + esc(App.displayName(s)) + '</div>' +
+      styleHtml +
       '</div></div>' +
       '<div class="seat-line"><span class="chips">¥' + s.chips + '</span>' +
       (moodTxt ? '<span class="mood ' + moodCls + '">' + moodTxt + '</span>' : '') + '</div>' +
@@ -913,7 +1088,7 @@
       var betText = s.lastAction || s.bet;
       var bet = document.createElement('div');
       bet.className = 'seat-bet';
-      bet.innerHTML = '<span class="chip-icon"></span> ' + esc(betText);
+      bet.innerHTML = App.betChipHtml(s.bet) + ' ' + esc(betText);
       div.appendChild(bet);
     }
     // 过牌：单独一个小状态徽标（与弃牌/全下徽标并列，但不与主下注徽标冲突）
@@ -1020,6 +1195,8 @@
     var g2 = g;
     // 补齐 最背/最旺 的名字（从座位表找）
     var seatName = function (idx) {
+      var dn = App.displayName(idx);          // 匿名桌：优先用代号
+      if (dn) return dn;
       if (g2 && g2.seats && g2.seats[idx]) return g2.seats[idx].name || ('座位' + (idx + 1));
       var row = null;
       for (var r = 0; r < s.rows.length; r++) if (s.rows[r].idx === idx) { row = s.rows[r]; break; }
@@ -1037,7 +1214,7 @@
     if (s.rows.length) {
       var top = s.rows.slice(0, 3);
       top.forEach(function (r) {
-        var nm = r.name || seatName(r.idx);
+        var nm = (typeof r.idx === 'number') ? seatName(r.idx) : (r.name || '');
         h += '<div class="aiv-row">' +
           '<span class="aiv-hand">第 ' + r.handNo + ' 手 · ' + esc(r.streetCN) +
           (r.desc ? ' · ' + esc(r.desc) : '') + '</span>' +
@@ -1057,14 +1234,15 @@
     events.forEach(function (evt) {
       (evt.players || []).forEach(function (p) {
         if (!p.risk) return;
-        rows.push({ pot: evt.pot, desc: evt.desc, streetCN: evt.streetCN, name: p.name, ev: p.ev, actual: p.actual, luck: p.luck, allIn: p.allIn });
+        rows.push({ pot: evt.pot, desc: evt.desc, streetCN: evt.streetCN, idx: p.idx, name: p.name, ev: p.ev, actual: p.actual, luck: p.luck, allIn: p.allIn });
       });
     });
     if (!rows.length) return '';
     var h = '<div class="rv-section"><div class="rv-h">本手全下 EV（AIV）</div>';
     rows.forEach(function (x) {
+      var nm = (typeof x.idx === 'number') ? (App.displayName(x.idx) || x.name) : x.name;
       h += '<div class="aiv-row">' +
-        '<span class="aiv-nm">' + esc(x.name) + '</span>' +
+        '<span class="aiv-nm">' + esc(nm) + '</span>' +
         '<span class="rs">底池 ' + x.pot + (x.desc ? ' · ' + esc(x.desc) : '') + ' · ' + esc(x.streetCN) + '</span>' +
         '<span class="rs">EV ' + fmtNum(x.ev) + ' ／ 实际 ' + fmtNum(x.actual) +
         ' ／ 运气 <b class="' + (x.luck >= 0 ? 'aiv-good' : 'aiv-bad') + '">' + fmtNum(x.luck) + '</b></span></div>';
@@ -1117,7 +1295,7 @@
       html += '<div class="rv-street"><div class="rv-street-h">' + esc(s.streetCN) +
         (s.board.length ? '　' + esc(Cards.cardsText(s.board)) : '') + '　底池 ' + s.pot + '</div><div class="rv-acts">';
       s.actions.forEach(function (a) {
-        html += '<div><span class="who">' + esc(a.name) + '</span> ' + esc(a.action) + (a.amount ? ' ' + a.amount : '') +
+        html += '<div><span class="who">' + esc(App.displayName(a)) + '</span> ' + esc(a.action) + (a.amount ? ' ' + a.amount : '') +
           (a.reason ? ' <span class="reason">「' + esc(a.reason) + '」</span>' : '') + '</div>';
       });
       html += '</div></div>';
@@ -1130,7 +1308,7 @@
       r.opponents.forEach(function (o) {
         var hole = o.revealed ? esc(Cards.cardsText(o.hole)) : '未亮牌';
         html += '<div class="opp-row">' +
-          '<span class="nm">' + esc(o.name) + '</span>' +
+          '<span class="nm">' + esc(App.displayName(o)) + '</span>' +
           '<span class="hd">' + esc(o.handName || hole) + '</span>' +
           (o.wasBluff ? '<span class="bluff">诈唬</span>' : '') +
           '<span class="rs">' + esc(o.lastAction) + (o.reason ? '「' + esc(o.reason) + '」' : '') + '</span>' +

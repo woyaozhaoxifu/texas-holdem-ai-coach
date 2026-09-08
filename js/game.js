@@ -15,6 +15,35 @@
   function treq(p) {
     try { return typeof require !== 'undefined' ? require(p) : null; } catch (e) { return null; }
   }
+
+  /**
+   * 独立 PRNG（mulberry32）。
+   * 漂移刻意**不**消费 this.rng —— 那会挪动洗牌随机流、让所有既有种子回放
+   * 测试的牌面全部改变。漂移用自己的流，一手开始前调用次数只取决于手数，
+   * 因此仍然完全可复现，同时不碰牌局本身的确定性。
+   */
+  function makeRng(seed) {
+    var a = (typeof seed === 'number' && isFinite(seed)) ? (seed | 0) : 20250821;
+    if (a === 0) a = 20250821;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /** 漂移流的默认种子。config.driftSeed 可覆盖；config.drift=false 或环境变量
+   *  POKER_NO_DRIFT=1 可整桌关闭漂移（QA 做「漂移前/后」对照时会用到）。 */
+  var DEFAULT_DRIFT_SEED = 20250821;
+
+  /** 环境变量逃生开关：浏览器下 process 不存在，静默返回 false */
+  function driftEnvOff() {
+    try {
+      if (typeof process !== 'undefined' && process.env && process.env.POKER_NO_DRIFT === '1') return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
   var Cards = Poker.Cards || treq('./cards.js');
   var HandEval = Poker.HandEval || treq('./handEval.js');
   var Equity = Poker.Equity || treq('./equity.js');
@@ -29,6 +58,9 @@
     this.bigBlind = this.config.bigBlind || 20;
     this.initialChips = this.config.initialChips || 1000;
     this.rng = this.config.rng || Math.random;
+    this.driftEnabled = this.config.drift !== false && !driftEnvOff();
+    this.driftSeed = typeof this.config.driftSeed === 'number' ? this.config.driftSeed : DEFAULT_DRIFT_SEED;
+    this.driftRng = makeRng(this.driftSeed);
 
     this.seats = [];
     var defs = this.config.seats || [];
@@ -42,6 +74,10 @@
         avatar: d.avatar || '',
         isHuman: isHuman,
         personality: isHuman ? null : (typeof d.personality === 'string' ? Personalities.get(d.personality) : (d.personality || Personalities.get('tag'))),
+        // 策略漂移的「锚」：人格出厂基准，永不被篡改。
+        // seat.personality 每手会被替换为围绕它的派生对象（见 applyPersonalityDrift），
+        // 所有需要读「这个人本来是谁」的地方请用 basePersonality。
+        basePersonality: isHuman ? null : (typeof d.personality === 'string' ? Personalities.get(d.personality) : (d.personality || Personalities.get('tag'))),
         chips: d.chips != null ? d.chips : 1000,
         hole: [],
         bet: 0,
@@ -192,6 +228,31 @@
     return 1 - (d - 1) / (n - 1);
   };
 
+  /**
+   * 每手开局为所有 AI 座位生成「本手临时人格」。
+   *
+   * 锚点是 seat.basePersonality（构造时固定，永不被写），seat.personality 被替换为
+   * 围绕它做有界摆动的派生对象。derive 保证 id 不变，因此排行榜序列化
+   * （computeRoundStandings / finalStandings）、复盘 review.js、关系系统
+   * 读到的身份与写入 result 的 `personality` 字段都不受影响。
+   *
+   * 人类座位 personality 恒为 null，跳过。
+   */
+  Game.prototype.applyPersonalityDrift = function () {
+    if (!Personalities || typeof Personalities.derive !== 'function') return;
+    var n = this.seats.length;
+    for (var i = 0; i < n; i++) {
+      var s = this.seats[i];
+      if (s.isHuman) continue;
+      if (!s.personality) continue;
+      // 兜底：从外部绕过构造函数塞进来的座位，第一次把当前人格认作锚点
+      if (!s.basePersonality) s.basePersonality = s.personality;
+      if (!this.driftEnabled) continue;
+      var next = Personalities.derive(s.basePersonality, this.driftRng);
+      if (next && next.id === s.basePersonality.id) s.personality = next;
+    }
+  };
+
   Game.prototype.streetCN = function (s) { return STREET_CN[s || this.street] || s; };
 
   // ============ 开始一手牌 ============
@@ -254,6 +315,10 @@
         s.folded = false; s.sittingOut = false; s.stats.hands++;
       } else { s.folded = false; s.sittingOut = false; s.stats.hands++; }
     }
+
+    // ---- 策略漂移：AI 不严格执行单一策略，围绕基准小幅摆动 ----
+    // 必须在任何发牌 / 读决策之前执行，否则本手会用到上一手的人格。
+    this.applyPersonalityDrift();
 
     this.button = (this.button + 1) % this.seats.length;
     // 若按钮位玩家已出局，顺延

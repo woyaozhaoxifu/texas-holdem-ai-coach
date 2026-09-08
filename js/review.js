@@ -88,6 +88,7 @@
         if (log[m].street === st) {
           acts.push({
             name: log[m].actorName,
+            seatIndex: log[m].seatIndex,
             isHuman: log[m].isHuman,
             action: actionCN(log[m].action),
             amount: log[m].amount,

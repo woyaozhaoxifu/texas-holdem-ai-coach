@@ -314,31 +314,48 @@ body {
   box-shadow: 0 2px 5px rgba(0,0,0,.45);
   position: absolute; pointer-events: none;
 }
-.chip.red { background: radial-gradient(circle at 30% 30%, #ff6b6b, #c41e3a); }
-.chip.blue { background: radial-gradient(circle at 30% 30%, #5cadff, #1e5799); }
-.chip.green { background: radial-gradient(circle at 30% 30%, #5fd6a6, #1f5c4d); }
-.chip.black { background: radial-gradient(circle at 30% 30%, #4a5568, #1a1f2a); }
 .chip-anim-layer { position: fixed; inset: 0; pointer-events: none; z-index: 200; }
 
-/* 落到底池后留下的筹码堆（桌上"摆着的筹码"） */
+/* 面额配色：5=红 / 25=蓝 / 100=绿 / 500=黑 / 1000=紫
+   （飞行的 .chip、堆里的 .pile-chip、徽标里的 .chip-icon 共用同一套面额类） */
+.den-5 { background: radial-gradient(circle at 30% 30%, #ff8a80, #c0392b); }
+.den-25 { background: radial-gradient(circle at 30% 30%, #7fc4f5, #2980b9); }
+.den-100 { background: radial-gradient(circle at 30% 30%, #7ee2a8, #27ae60); }
+.den-500 { background: radial-gradient(circle at 30% 30%, #8a97a6, #2c3e50); }
+.den-1000 { background: radial-gradient(circle at 30% 30%, #d7a6f0, #8e44ad); }
+.den-gray { background: radial-gradient(circle at 30% 30%, #9aa5b1, #57606a); }
+
+/* 底池筹码堆：按面额分"摞"，每摞同色竖向叠放（最多 5 枚），超出在摞下方标 ×N */
 .pot-chips-pile {
-  display: inline-flex; align-items: center; vertical-align: middle;
-  margin-left: 10px; height: 18px; min-width: 6px;
+  display: inline-flex; align-items: flex-end; vertical-align: middle;
+  margin-left: 10px; min-width: 6px;
 }
 .pile-chip {
   width: 16px; height: 16px;
   border-radius: 50%;
   border: 2px dashed rgba(255,255,255,.45);
   display: inline-block;
-  margin-left: -7px;
   box-shadow: 0 1.5px 3px rgba(0,0,0,.4);
   transition: transform .3s;
 }
-.pile-chip:first-child { margin-left: 0; }
-.pile-chip.c1 { background: radial-gradient(circle at 30% 30%, #ff8080, #c41e3a); }
-.pile-chip.c2 { background: radial-gradient(circle at 30% 30%, #6cb1ff, #1e5799); }
-.pile-chip.c3 { background: radial-gradient(circle at 30% 30%, #6fdfb0, #1f5c4d); }
-.pile-chip.c4 { background: radial-gradient(circle at 30% 30%, #586275, #1a1f2a); }
+.pin-stack {
+  display: inline-flex; flex-direction: column; align-items: center;
+  margin-left: 8px;
+}
+.pin-stack:first-child { margin-left: 0; }
+.pin-stack-chips { display: flex; flex-direction: column-reverse; }
+.pin-stack-chips .pile-chip { width: 12px; height: 12px; margin-top: -5px; margin-left: 0; }
+.pin-stack-chips .pile-chip:first-child { margin-top: 0; }
+.pin-stack-foot { display: flex; align-items: baseline; gap: 1px; margin-top: 2px; }
+.pin-stack-label { font-size: 9px; line-height: 1; color: var(--text-2); }
+.pin-stack-count { font-size: 9px; line-height: 1; color: var(--gold); }
+
+/* 座位下注徽标里的面额小筹码（需压过 .seat-bet .chip-icon 的金色底） */
+.seat-bet .chip-icon.den-5 { background: radial-gradient(circle at 30% 30%, #ff8a80, #c0392b); }
+.seat-bet .chip-icon.den-25 { background: radial-gradient(circle at 30% 30%, #7fc4f5, #2980b9); }
+.seat-bet .chip-icon.den-100 { background: radial-gradient(circle at 30% 30%, #7ee2a8, #27ae60); }
+.seat-bet .chip-icon.den-500 { background: radial-gradient(circle at 30% 30%, #8a97a6, #2c3e50); }
+.seat-bet .chip-icon.den-1000 { background: radial-gradient(circle at 30% 30%, #d7a6f0, #8e44ad); }
 
 /* 思考气泡 */
 .bubble {

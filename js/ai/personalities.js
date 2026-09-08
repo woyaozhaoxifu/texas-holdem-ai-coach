@@ -40,8 +40,12 @@
    *  cbetFreq            持续下注频率 0..1
    *  threeBetFreq        3-bet 频率 0..1
    *  preflopTop          翻牌前只玩前 X% 起手牌（null 表示不过滤）
-   *  betSizing           下注尺度 {value, bluff, polarize}
-   *  callStation         跟注站倾向：命中中等牌力就不弃牌 0..1
+ *  betSizing           下注尺度 {value, bluff, polarize}
+ *  drift               「不严格执行本策略」的程度 0..0.4，每手由 Personalities.derive()
+ *                      围绕基准做有界摆动：0 = 一板一眼，越大越容易偏离本色。
+ *                      硬保底：无论怎么漂，vpip / pfr 相对基准的偏离不得超过 ±35%——
+ *                      匿名桌要靠入池率 / 加注率反推对手身份，这是可推断性的生命线。
+ *  callStation         跟注站倾向：命中中等牌力就不弃牌 0..1
    *  stealFreq           偷盲/偷池频率（前位无人入池时在后位开火）0..1
    *  restealFreq         反偷频率（面对疑似偷盲时 3-bet 反击）0..1
    *  bluffCatchFreq      抓诈唬倾向（面对大注时敢跟的程度）0..1
@@ -82,6 +86,7 @@
       moodLines: { tilt: ['又输了……再来再来！', '我就不信了，跟！'], happy: ['哈哈我赢了！', '这把运气好！'], calm: ['嗯……跟吧。'] },
       callStation: 0.92,
       pushBB: 6,
+      drift: 0.30,
       betSizing: { value: 0.45, bluff: 0.35, polarize: 0 }
     },
     {
@@ -178,6 +183,7 @@
       moodLines: { tilt: ['再来！我就不信压不死你！', '气死我了，加注！'], happy: ['哈哈，你们都太怂了！', '继续开火！'], calm: ['机会来了，打。'] },
       callStation: 0.18,
       pushBB: 18,
+      drift: 0.22,
       betSizing: { value: 0.80, bluff: 0.72, polarize: 0.55 }
     },
     {
@@ -262,6 +268,196 @@
     return PERSONALITIES.slice();
   }
 
+  // ==================================================================
+  // 策略漂移（strategy drift）
+  //
+  // 设计约束：AI 要有人味儿（不完全照本宣科），但主基调必须可辨识——
+  // 匿名桌功能依赖玩家用 HUD 的 VPIP / PFR 反推「这是谁」。
+  // 因此漂移是「围绕基准的小幅有界摆动」，不是人格随机切换。
+  // ==================================================================
+
+  /** 只允许倍率型保底偏离（相对）的最大值：VPIP / PFR ±35% */
+  var DRIFT_HARD_LIMIT = 0.35;
+  /** 「串味」概率：小概率向相邻人格靠拢 */
+  var CROSS_RATE = 0.12;
+
+  /**
+   * 参与漂移的字段及其绝对 clamp 区间 [lo, hi]。
+   * 概率类字段封到 [0,1]，系数类封到语义合理的倍数区间；
+   * 区间同时充当「极端输入」保护（base 字段缺失或被人为改到离谱值时不会崩）。
+   */
+  var DRIFT_FIELDS = [
+    ['vpip', 0.02, 0.95],
+    ['pfr', 0.01, 0.90],
+    ['aggression', 0.20, 2.40],
+    ['bluffFreq', 0, 0.85],
+    ['callThreshold', 0.55, 2.20],
+    ['foldToAggression', 0, 0.95],
+    ['tricky', 0, 0.75],
+    ['cbetFreq', 0, 0.98],
+    ['threeBetFreq', 0, 0.60],
+    ['stealFreq', 0, 0.98],
+    ['restealFreq', 0, 0.85],
+    ['bluffCatchFreq', 0.02, 0.99],
+    ['callStation', 0, 0.99],
+    ['positionAware', 0, 1],
+    ['noise', 0, 0.65]
+  ];
+
+  /** 不参与漂移的字段（原样保留）：情绪系统 / 序列化 / 短码推推乐依赖它们 */
+  var FROZEN_FIELDS = ['moodVolatility', 'adaptivity', 'pushBB', 'tiltFactor', 'equitySamples'];
+
+  /**
+   * 相邻人格（「串味」时的参照对象）。
+   * 刻意让 fish 孤立——它的 VPIP 必须与 rock 保持量级差距，
+   * 否则匿名桌的可推断性断言会失效。
+   */
+  var NEIGHBORS = {
+    fish: [],
+    rock: ['tag', 'lag'],
+    tag: ['rock', 'lag', 'solver'],
+    lag: ['tag', 'rock', 'solver'],
+    solver: ['tag', 'lag', 'boss'],
+    boss: ['solver', 'tag', 'lag']
+  };
+
+  /**
+   * 允许被「串味」拉扯的维度。
+   * 刻意排除 vpip / pfr：这是身份指纹，永不允许向他人格靠拢，
+   * 只接受围绕自身基准的小幅摆动。
+   */
+  var CROSS_FIELDS = ['aggression', 'bluffFreq', 'tricky', 'cbetFreq', 'stealFreq',
+    'threeBetFreq', 'callThreshold', 'bluffCatchFreq', 'callStation', 'positionAware', 'noise'];
+
+  /** 缺省漂移幅度（base 未提供 drift 时使用） */
+  var DEFAULT_DRIFT = 0.14;
+
+  function clamp(v, lo, hi) {
+    if (!(v > lo)) v = lo;      // 同时兜住 NaN
+    if (v > hi) v = hi;
+    return v;
+  }
+
+  function numOrDefault(v, d) {
+    return (typeof v === 'number' && isFinite(v)) ? v : d;
+  }
+
+  /** 把 base 解析成人格对象：支持 id 字符串 / 人格对象 / 脏数据兜底 */
+  function resolveBase(base) {
+    if (base && typeof base === 'object') return base;
+    if (typeof base === 'string' && base) return get(base);
+    return get('tag');
+  }
+
+  /** 对称扰动算子：返回 [-k, +k] 区间内的相对偏移量 */
+  function wobble(rnd, k) {
+    return (rnd() * 2 - 1) * k;
+  }
+
+  /**
+   * 生成「本手临时人格」。
+   *
+   * 保留不变：id / name / avatar / difficulty / style / desc / color（身份与 UI），
+   *          以及 moodVolatility / adaptivity / pushBB / tiltFactor / equitySamples
+   *          （情绪系统、序列化和短码推推乐口径）。
+   * 按 drift 做有界相对扰动：其余全部数值字段 + betSizing + preflopTop。
+   * 硬保底：vpip / pfr 相对基准偏离 ≤ ±35%，且 pfr ≤ vpip。
+   *
+   * @param {Object|string} base 基准人格（对象或 id 字符串）
+   * @param {Function} [rnd] 可注入随机源，默认 Math.random
+   * @return {Object} 派生人格对象
+   */
+  function derive(base, rnd) {
+    var p = resolveBase(base);
+    var r = (typeof rnd === 'function') ? rnd : Math.random;
+    var drift = clamp(numOrDefault(p.drift, DEFAULT_DRIFT), 0, 0.4);
+
+    // 1) 浅拷贝全部自有字段 —— 任何新增/自定义字段都不会丢
+    var out = {};
+    for (var key in p) {
+      if (Object.prototype.hasOwnProperty.call(p, key)) out[key] = p[key];
+    }
+    // betSizing 是嵌套对象，必须复制后再改，否则会污染基准人格
+    var baseSizing = (p.betSizing && typeof p.betSizing === 'object') ? p.betSizing : {};
+    out.betSizing = {
+      value: numOrDefault(baseSizing.value, 0.66),
+      bluff: numOrDefault(baseSizing.bluff, 0.55),
+      polarize: numOrDefault(baseSizing.polarize, 0.3)
+    };
+
+    // 2) 逐字段有界相对扰动
+    var i, f, name, lo, hi, raw, val;
+    for (i = 0; i < DRIFT_FIELDS.length; i++) {
+      f = DRIFT_FIELDS[i];
+      name = f[0]; lo = f[1]; hi = f[2];
+      raw = numOrDefault(p[name], numOrDefault(get(p.id)[name], 0));
+      val = clamp(raw * (1 + wobble(r, drift)), lo, hi);
+      out[name] = val;
+    }
+
+    // 3) preflopTop：起手牌范围，相对扰动上限 ±15%（比 ±35% 的 VPIP 更保守，
+    //    因为「玩多少比例的牌」是最直观的身份特征）
+    if (p.preflopTop != null && isFinite(p.preflopTop)) {
+      var topStep = Math.min(drift, 0.15);
+      out.preflopTop = clamp(p.preflopTop * (1 + wobble(r, topStep)), 0.08, 0.95);
+    } else {
+      out.preflopTop = null;
+    }
+
+    // 4) betSizing：下注尺度 ±10%，polarize 是布尔位不动
+    var sizeStep = Math.min(drift, 0.10);
+    out.betSizing.value = clamp(out.betSizing.value * (1 + wobble(r, sizeStep)), 0.25, 1.05);
+    out.betSizing.bluff = clamp(out.betSizing.bluff * (1 + wobble(r, sizeStep)), 0.20, 1.00);
+    out.betSizing.polarize = numOrDefault(baseSizing.polarize, 0.3);
+
+    // 5) 小概率「串味」：向相邻人格靠拢 1~2 个非指纹维度 30%~50%
+    if (drift > 0 && r() < CROSS_RATE) {
+      var nb = NEIGHBORS[p.id] || [];
+      if (nb.length) {
+        var targetId = nb[Math.floor(r() * nb.length) % nb.length];
+        var target = get(targetId);
+        if (target) {
+          var howMany = 1 + Math.floor(r() * 2);   // 1 或 2
+          for (i = 0; i < howMany; i++) {
+            var dim = CROSS_FIELDS[Math.floor(r() * CROSS_FIELDS.length) % CROSS_FIELDS.length];
+            var tv = numOrDefault(target[dim], numOrDefault(out[dim], 0));
+            var cur = numOrDefault(out[dim], 0);
+            var moved = cur + (tv - cur) * (0.3 + r() * 0.2);
+            // 串味后再套一次该字段的绝对区间
+            for (var q = 0; q < DRIFT_FIELDS.length; q++) {
+              if (DRIFT_FIELDS[q][0] === dim) {
+                moved = clamp(moved, DRIFT_FIELDS[q][1], DRIFT_FIELDS[q][2]);
+                break;
+              }
+            }
+            out[dim] = moved;
+          }
+        }
+      }
+    }
+
+    // 6) ---- 硬保底：VPIP / PFR 相对基准 ±35%（随机多久都不许越过）----
+    var baseVpip = clamp(numOrDefault(p.vpip, 0.28), 0.02, 0.95);
+    var basePfr = clamp(numOrDefault(p.pfr, 0.22), 0.01, 0.90);
+    var vLo = baseVpip * (1 - DRIFT_HARD_LIMIT);
+    var vHi = baseVpip * (1 + DRIFT_HARD_LIMIT);
+    var pLo = basePfr * (1 - DRIFT_HARD_LIMIT);
+    var pHi = basePfr * (1 + DRIFT_HARD_LIMIT);
+    out.vpip = clamp(out.vpip, Math.max(0.02, vLo), Math.min(0.95, vHi));
+    out.pfr = clamp(out.pfr, Math.max(0.01, pLo), Math.min(0.90, pHi));
+    // 附加常识约束：加注率不可能超过入池率
+    if (out.pfr > out.vpip) out.pfr = out.vpip;
+
+    // 7) 冻结字段：以基准值写回，确保完全不被扰动
+    for (i = 0; i < FROZEN_FIELDS.length; i++) {
+      out[FROZEN_FIELDS[i]] = p[FROZEN_FIELDS[i]];
+    }
+    // 身份字段：即使 base 缺失也不允许被改写成别的人格
+    out.id = p.id || 'tag';
+    out.drift = p.drift;
+    return out;
+  }
+
   /** 难度星级 -> 星字符串 */
   function stars(difficulty) {
     var s = '';
@@ -291,6 +487,11 @@
     LIST: PERSONALITIES,
     get: get,
     all: all,
+    derive: derive,
+    DRIFT_HARD_LIMIT: DRIFT_HARD_LIMIT,
+    DRIFT_FIELDS: DRIFT_FIELDS,
+    FROZEN_FIELDS: FROZEN_FIELDS,
+    NEIGHBORS: NEIGHBORS,
     stars: stars,
     moodLabel: moodLabel,
     moodEmoji: moodEmoji
