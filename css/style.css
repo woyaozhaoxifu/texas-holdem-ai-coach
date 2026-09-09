@@ -490,6 +490,12 @@ body {
   font-size: 60px; line-height: 1;
   text-shadow: 0 2px 6px rgba(0,0,0,.1);
 }
+/* 四花色四色：♠黑 ♥红 ♦蓝 ♣绿（白卡面上高可辨） */
+.card.fancy.spade .big-suit, .card.fancy.spade .corner { color: #20242f; }
+.card.fancy.heart .big-suit, .card.fancy.heart .corner { color: #d32029; }
+.card.fancy.diamond .big-suit, .card.fancy.diamond .corner { color: #1d63d8; }
+.card.fancy.club .big-suit, .card.fancy.club .corner { color: #178a4e; }
+/* 兼容旧类名（已无新引用，防历史缓存/外部注入） */
 .card.fancy.red .big-suit, .card.fancy.red .corner { color: #d32029; }
 .card.fancy.black .big-suit, .card.fancy.black .corner { color: #1a1f2a; }
 .card.fancy.empty {
@@ -510,6 +516,11 @@ body {
 }
 .card .r { font-size: 24px; line-height: 1; }
 .card .s { font-size: 19px; line-height: 1.25; }
+/* 四花色四色（覆盖 .card 默认深色文字） */
+.card.spade { color: #20242f; }
+.card.heart { color: #d32029; }
+.card.diamond { color: #1d63d8; }
+.card.club { color: #178a4e; }
 .card.red { color: #d32029; }
 .card.black { color: #1a1f2a; }
 .card.small { width: 38px; height: 52px; border-radius: 6px; }

@@ -85,6 +85,14 @@
     return card.s === 1 || card.s === 2;
   }
 
+  // 花色 UI 类名：四花色各一种颜色（♠黑 ♥红 ♦蓝 ♣绿），小牌也容易分辨
+  var SUIT_CLS = ['spade', 'heart', 'diamond', 'club'];
+
+  /** 返回花色对应的 CSS 类名（spade/heart/diamond/club） */
+  function suitClass(card) {
+    return card && card.s >= 0 && card.s <= 3 ? SUIT_CLS[card.s] : 'spade';
+  }
+
   var Cards = {
     SUITS: SUITS,
     SUIT_SYMBOLS: SUIT_SYMBOLS,
@@ -98,7 +106,9 @@
     cardText: cardText,
     cardName: cardName,
     cardsText: cardsText,
-    isRed: isRed
+    isRed: isRed,
+    SUIT_CLS: SUIT_CLS,
+    suitClass: suitClass
   };
 
   Poker.Cards = Cards;

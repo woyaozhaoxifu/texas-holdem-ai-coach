@@ -1354,7 +1354,7 @@
   function cardEl(card, small, fancy) {
     var d = document.createElement('div');
     if (fancy) {
-      var fc = Cards.isRed(card) ? 'red' : 'black';
+      var fc = Cards.suitClass(card);
       d.className = 'card fancy ' + fc;
       d.innerHTML =
         '<span class="corner tl"><span class="r">' + Cards.RANK_NAMES[card.r] + '</span><span class="s">' + Cards.SUIT_SYMBOLS[card.s] + '</span></span>' +
@@ -1362,7 +1362,7 @@
         '<span class="corner br"><span class="r">' + Cards.RANK_NAMES[card.r] + '</span><span class="s">' + Cards.SUIT_SYMBOLS[card.s] + '</span></span>';
       return d;
     }
-    d.className = 'card' + (small ? ' small' : '') + ' ' + (Cards.isRed(card) ? 'red' : 'black');
+    d.className = 'card' + (small ? ' small' : '') + ' ' + Cards.suitClass(card);
     d.innerHTML = '<span class="r">' + Cards.RANK_NAMES[card.r] + '</span><span class="s">' + Cards.SUIT_SYMBOLS[card.s] + '</span>';
     return d;
   }
@@ -1563,7 +1563,7 @@
   function cardsHtml(cards) {
     if (!cards || !cards.length) return '<span class="rv-label">—</span>';
     return cards.map(function (c) {
-      var cls = Cards.isRed(c) ? 'red' : 'black';
+      var cls = Cards.suitClass(c);
       return '<span class="card small ' + cls + '"><span class="r">' + Cards.RANK_NAMES[c.r] + '</span><span class="s">' + Cards.SUIT_SYMBOLS[c.s] + '</span></span>';
     }).join('');
   }
