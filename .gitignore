@@ -24,3 +24,4 @@ start_desktop.bat
 start_phone.bat
 .venv/
 server.pid
+.ghtok
