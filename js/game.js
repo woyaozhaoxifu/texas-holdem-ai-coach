@@ -524,6 +524,10 @@
     // 若本行动把玩家推成全下，记录全下街（C1 AIV 计算锁定街用；盲注/ante 已在 post 阶段记 preflop）
     if (s.allIn && !s._allinStreet) s._allinStreet = this.street;
 
+    // 弃牌连击计数（残局 AI 用：连续弃牌会让范围放宽，专治“一直弃牌”观感）
+    if (s.folded) s._foldStreak = (s._foldStreak || 0) + 1;
+    else s._foldStreak = 0;
+
     s.lastReason = reason || '';
 
     // ---- 记录复盘快照 ----

@@ -226,11 +226,26 @@
       // 面对加注 → 收紧范围（foldToAggression 高的收得更紧）
       if (raiseCount >= 2) needTop *= (1 - 0.30 * clamp(1 - p.foldToAggression, 0, 1));
       if (raiseCount >= 3) needTop *= 0.65;
+      // 残局（≤3 人有效对手）：短桌 3-bet 泛滥、成本相对高，被 3-bet 后别那么容易被吓跑（否则每手收盲无人看翻牌）
+      if (nOpp <= 2 && raiseCount >= 2) needTop *= (1 + 0.16 * Math.min(2, raiseCount - 1));
       // 连败倾斜 + 情绪上头：越上头打得越松
       if (seat.consecutiveLosses >= 2) needTop *= (1 + p.tiltFactor * 0.5);
       needTop *= (1 + moodTilt * 0.35);
       // 噪声
       if (p.noise > 0) needTop *= (1 + (rnd() * 2 - 1) * p.noise * 0.5);
+      // 短桌/残局（有效对手 ≤2）：盲注贵、牌局稀 ——
+      // ① 我在盲注位且只面对单个开池(补差 ≤2.2BB)：便宜 defend，不让偷盲每次白拿
+      //    （真实短桌 BB 对 2.2BB 开池普遍 defend 40-60%，石头人也挡到 ~50%）
+      // ② 后位单次小额行动：范围也放宽一点
+      if (nOpp <= 2 && raiseCount <= 1 && toCall > 0 && toCall <= (table.bigBlind || 20) * 2.2) {
+        var defendCap = p.id === 'fish' ? 0.88 : p.id === 'rock' ? 0.50 : p.id === 'lag' ? 0.66 : 0.60;
+        if ((seat.bet || 0) > 0) needTop = Math.max(needTop, defendCap);
+        else needTop *= 1.45;
+      }
+      // 残局弃牌连击：连续弃 2 手起范围逐级放宽（盲注越磨越该出手），专治「一直弃牌」的观感
+      var fStrk = seat._foldStreak || 0;
+      if (nOpp <= 2 && fStrk >= 2) needTop *= (1 + Math.min(0.55, (fStrk - 1) * 0.16));
+      if (nOpp <= 2 && fStrk >= 4) needTop = Math.max(needTop, p.id === 'rock' ? 0.45 : 0.62); // 连弃 4+ 后“憋不住”保底
 
       // ---- 短码推推乐：后手 ≤ pushBB×BB → 全下/弃牌优先，不再小额墨迹 ----
       var bbN = table.bigBlind || 20;
@@ -240,6 +255,8 @@
         // 越短推得越宽：刚到阈值≈常规范围，1BB 时几乎任何可玩牌都推
         var urgency = Math.min(1, (pushBB - stackBB) / pushBB);          // 0(临界)..1(1BB)
         var pushTop = clamp((p.preflopTop != null ? p.preflopTop : p.vpip) + 0.18 * urgency + 0.06, 0.03, 0.85);
+        if (nOpp <= 2) pushTop = Math.min(0.92, pushTop * 1.20);   // 残局推挤范围加宽，别一手手交盲注
+        if ((seat._foldStreak || 0) >= 3) pushTop = Math.min(0.95, pushTop * 1.25); // 连弃多手后短码也憋不住要推
         pushTop *= (1 + 0.35 * p.positionAware * Math.max(0, posFactor - 0.5)); // 后位放宽
         var fish = p.id === 'fish';
         var allinTotal = (seat.bet || 0) + chips;
