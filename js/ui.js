@@ -32,17 +32,14 @@
     oddsKey: '',          // 胜率助手缓存键（街/牌面/对手数变化才重算）
     oddsCache: null,      // 最近一次 oddsPanel 结果
     oddsCollapsed: false, // 用户手动折叠
+    oddsPendingKey: '',   // 正在后台(Worker)计算的 key，避免重复发起
     anonMode: false,      // 匿名桌：隐藏对手身份（选桌时勾选，开局生效）
     anonymRevealed: false // 匿名桌：身份是否已揭晓（全局、不可逆）
   };
 
-  // 比赛盲注升级表（第 N 轮取第 N 档；第 6 档起带 Ante = BB×10% 向上取整到 5）
-  var MATCH_BLINDS = [
-    { sb: 10, bb: 20, ante: 0 }, { sb: 15, bb: 30, ante: 0 }, { sb: 25, bb: 50, ante: 0 },
-    { sb: 40, bb: 80, ante: 0 }, { sb: 60, bb: 120, ante: 0 }, { sb: 100, bb: 200, ante: 20 },
-    { sb: 150, bb: 300, ante: 30 }, { sb: 250, bb: 500, ante: 50 },
-    { sb: 400, bb: 800, ante: 80 }, { sb: 600, bb: 1200, ante: 120 }
-  ];
+  // 赛制结构：单一数据源在 js/structure.js（window.Poker.Structures）
+  // ——盲注表不再在此处留副本，ui 与 game 都从 Structures 读
+  var Structures = Poker.Structures;
 
   // 筹码面额体系（盲注 10/20、起始筹码 2000 均可整除：10=2×5，20=4×5，2000=2×1000）
   var CHIP_DENOMS = [
@@ -193,6 +190,20 @@
     };
     el('btnStartTable').onclick = function () { App.startTable(App.selected); };
     el('btnStartMatch').onclick = function () { App.startTable(App.selected, 'match'); };
+    // 赛制选择器：联动提示文案与开始按钮（每轮手数）
+    var selS = el('selStructure');
+    if (selS) {
+      var updStruct = function () {
+        var s = (typeof Structures !== 'undefined' && Structures) ? Structures.get(selS.value || 'fast') : null;
+        if (!s) return;
+        var hint = el('structHint');
+        if (hint) hint.textContent = s.desc;
+        var bm = el('btnStartMatch');
+        if (bm) bm.textContent = '🏆 比赛 · 每轮 ' + s.handsPerLevel + ' 手';
+      };
+      selS.onchange = updStruct;
+      updStruct();
+    }
     el('btnNextRound').onclick = function () { App.nextRound(); };
     el('btnMatchQuit').onclick = function () { App.showFinal(); };
     el('btnBackLobby').onclick = function () { App.backLobby(); };
@@ -229,25 +240,11 @@
     App.log('<span class="hl">' + esc(msg) + '</span>');
   };
 
-  /** 等比缩放：按可用区域把固定画布整体 transform scale（最大 1:1，不放大） */
+  /** 等比缩放：已弃用 —— 牌桌现直接铺满窗口（.table-area 用 100% 自适应）。
+   *  保留函数入口与 resize 监听，避免破坏调用方；不再修改 --table-scale。 */
   App.syncScale = function () {
-    var host = el('scaleHost');
-    if (!host) return;
-    var baseW = 1280, baseH = 1000;
-    try {
-      if (typeof getComputedStyle === 'function') {
-        var cs = getComputedStyle(document.documentElement);
-        var w = parseFloat(cs.getPropertyValue('--table-base-w'));
-        var h = parseFloat(cs.getPropertyValue('--table-base-h'));
-        if (w > 0) baseW = w;
-        if (h > 0) baseH = h;
-      }
-    } catch (e) { /* 无头环境/个别浏览器缺 getComputedStyle 时用常量兜底 */ }
-    if (!host.clientWidth || !host.clientHeight) return;
-    var scale = Math.min(host.clientWidth / baseW, host.clientHeight / baseH, 1);
-    if (host.style && typeof host.style.setProperty === 'function') {
-      host.style.setProperty('--table-scale', Math.max(scale, 0.25).toFixed(4));
-    }
+    // 满屏自适应：固定画布不再做 transform scale，故此处为空操作。
+    return;
   };
 
   /** 把金额贪心拆成各面额筹码。
@@ -399,7 +396,11 @@
     App.anonymRevealed = false;
     App.seatTags = {};        // 每局重置：玩家手打的对桌标签
     App.syncAnonUi();
-    var initialChips = 2000;
+    // 赛制：从选桌弹窗读（默认 fast，保证老用户行为不变）
+    var selStruct = el('selStructure');
+    var structId = (selStruct && selStruct.value) || 'fast';
+    var st = Structures.get(structId);
+    var initialChips = st.startStack;
     var seats = [{ id: 'you', name: '你', isHuman: true, chips: initialChips }];
     ids.forEach(function (id) {
       var p = Personalities.get(id);
@@ -407,10 +408,20 @@
     });
     var cfg = { seats: seats, smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: initialChips };
     if (matchMode) {
-      cfg.autoRebuy = false;   // 比赛：不补筹，出局即淘汰
-      cfg.match = { enabled: true, roundHands: 15, blindLevels: MATCH_BLINDS, payouts: [50, 30, 20] };
+      cfg.autoRebuy = false;   // 比赛：不补筹，出局即淘汰（重入例外，见 reentry 配置）
+      cfg.match = {
+        enabled: true,
+        structure: st.id,
+        roundHands: st.handsPerLevel,
+        blindLevels: st.levels,
+        payouts: Structures.payoutsFor(st, seats.length),
+        allowReentry: st.allowReentry,
+        reentryUntilLevel: st.reentryUntilLevel,
+        reentryMax: st.reentryMax
+      };
     }
     App.game = new Poker.Game(cfg);
+    App.initTableTalk();          // 牌桌对话面板：建 DOM + 订阅 game.emit('tableTalk')
     App.seedOppStats();          // 把跨会话累积的对手统计灌进本桌座位
     App.reviews = [];
     App.revealAll = false;
@@ -465,6 +476,19 @@
         '<span class="rc-pts">积分 ' + (g.match.points[g.playerIndex] || 0) + '</span>';
     } else {
       rt.classList.add('hidden');
+    }
+    // 距升级盲注倒计时（KPC/快节奏都显示；轮满时隐藏，因即将弹轮次结算）
+    var bn = el('blindNext');
+    if (bn) {
+      var m = g.match;
+      if (m && m.enabled && !m.pendingRoundEnd && m.roundNo < (m.blindLevels ? m.blindLevels.length : 0)) {
+        var rem = Math.max(0, (m.roundHands || 0) - (m.handsInRound || 0));
+        var nxt = m.blindLevels[Math.min(m.roundNo, m.blindLevels.length - 1)];
+        bn.classList.remove('hidden');
+        bn.textContent = '距升级 ' + rem + ' 手 → ' + nxt.sb + '/' + nxt.bb + (nxt.ante ? ' +' + nxt.ante : '');
+      } else {
+        bn.classList.add('hidden');
+      }
     }
   };
 
@@ -663,17 +687,45 @@
     var key = g.street + '|' + nOpp + '|' +
       seat.hole[0].r + ':' + seat.hole[0].s + ',' + seat.hole[1].r + ':' + seat.hole[1].s + '|' +
       g.board.map(function (c) { return c.r + ':' + c.s; }).join(',');
-    if (key === App.oddsKey && App.oddsCache) return;
 
-    var data = null;
-    try { data = Poker.Equity.oddsPanel(seat.hole, g.board, nOpp, 600); } catch (e) { data = null; }
-    if (!data) {
-      body.innerHTML = '<div class="odds-note">暂时无法计算胜率。</div>';
+    // 已有缓存（同步命中）→ 直接渲染
+    if (key === App.oddsKey && App.oddsCache) {
+      body.innerHTML = App.oddsHtml(App.oddsCache);
       return;
     }
-    App.oddsKey = key;
-    App.oddsCache = data;
-    body.innerHTML = App.oddsHtml(data);
+    // 该 key 正在后台(Worker)计算 → 避免重复发起
+    if (key === App.oddsPendingKey) return;
+
+    App.oddsPendingKey = key;
+    body.innerHTML = '<div class="odds-note">计算中…</div>';
+
+    var reqKey = key;
+    var hole = seat.hole.slice();
+    var board = g.board.slice();
+    try {
+      // 重计算(深筹码 KPC 穷举/蒙特卡洛)移到后台线程，主线程不冻结；
+      // 浏览器不支持 Worker(file:// 等)时 computeAsync 自动同步回退。
+      Poker.Equity.computeAsync({
+        type: 'oddsPanel',
+        payload: { hole: hole, board: board, numOpponents: nOpp, iterations: 600 }
+      }).then(function (data) {
+        if (App.oddsPendingKey !== reqKey) return; // 已被更新的请求取代
+        App.oddsPendingKey = '';
+        if (!data) {
+          body.innerHTML = '<div class="odds-note">暂时无法计算胜率。</div>';
+          return;
+        }
+        App.oddsKey = reqKey;
+        App.oddsCache = data;
+        // 仍应展示且未被折叠时才写回（用当前 game 引用判断，避免跨局串台）
+        if (App.game === g && !App.oddsCollapsed && !body.classList.contains('hidden')) {
+          body.innerHTML = App.oddsHtml(data);
+        }
+      });
+    } catch (e) {
+      App.oddsPendingKey = '';
+      body.innerHTML = '<div class="odds-note">暂时无法计算胜率。</div>';
+    }
   };
 
   /** 把 oddsPanel 结果渲染成教学面板 HTML（纯文本 + 少量 span） */
@@ -724,6 +776,78 @@
       : '怎么算的：把每张没看到的牌两两当作对手底牌，与当前公共牌凑牌比大小：我赢的次数 + 平局一半 ÷ ' + d.total + ' 种组合 = 当前牌面胜率。' + later + '，真实到河牌胜率请参考左侧「教学提示」。';
     html += '<div class="odds-how">' + how + '</div>';
     return html;
+  };
+
+  // ================= 牌桌对话面板（订阅 game.emit('tableTalk')）=================
+  // 说明：game.js 的 emit 仅把事件压入 this.events，并无 on() 订阅机制。
+  // 这里在不改动 game.js 的前提下，包装 App.game.emit 增加监听器分发，
+  // 供 AI 大脑（另一 worker 负责）emit('tableTalk', {seatIndex,name,text,kind}) 时实时渲染。
+  // kind: bluff(橙) | badbeat(红) | steal(蓝) | reentry(紫) | generic(灰)
+  App.initTableTalk = function () {
+    if (!App._ttEl) {
+      var box = document.createElement('div');
+      box.className = 'table-talk';
+      box.id = 'tableTalk';
+      var head = document.createElement('div');
+      head.className = 'table-talk-head';
+      var title = document.createElement('span');
+      title.textContent = '牌桌对话';
+      var toggle = document.createElement('span');
+      toggle.className = 'table-talk-toggle';
+      toggle.textContent = '▾';
+      toggle.onclick = function () {
+        box.classList.toggle('collapsed');
+        toggle.textContent = box.classList.contains('collapsed') ? '▸' : '▾';
+      };
+      head.appendChild(title);
+      head.appendChild(toggle);
+      var log = document.createElement('div');
+      log.className = 'table-talk-log';
+      box.appendChild(head);
+      box.appendChild(log);
+      document.body.appendChild(box);
+      App._ttEl = box;
+      App._ttLog = log;
+    }
+    App.installTableTalkListener();
+  };
+
+  App.installTableTalkListener = function () {
+    var g = App.game;
+    if (!g || g._ttInstalled) return;
+    var origEmit = Poker.Game.prototype.emit;
+    g.emit = function (type, data) {
+      var ev = origEmit.call(g, type, data); // 保留原行为：压入 this.events
+      var hs = App._ttHandlers;
+      if (hs && hs[type]) {
+        var ls = hs[type];
+        for (var i = 0; i < ls.length; i++) {
+          try { ls[i](data, ev); } catch (e) { /* 单条监听异常不影响其余 */ }
+        }
+      }
+      return ev;
+    };
+    g.on = function (type, cb) {
+      App._ttHandlers = App._ttHandlers || {};
+      (App._ttHandlers[type] = App._ttHandlers[type] || []).push(cb);
+    };
+    g._ttInstalled = true;
+    App._ttHandlers = {}; // 新一局重置监听，避免跨局重复
+    g.on('tableTalk', function (data) { App.addTableTalk(data); });
+  };
+
+  App.addTableTalk = function (data) {
+    if (!data) return;
+    var log = App._ttLog;
+    if (!log) return;
+    var line = document.createElement('div');
+    var kind = data.kind || 'generic';
+    line.className = 'table-talk-line tt-' + kind;
+    var name = data.name || (data.seatIndex != null ? ('座位' + (data.seatIndex + 1)) : '');
+    line.textContent = name + '：' + (data.text || '');
+    log.appendChild(line);
+    while (log.childNodes.length > 60) log.removeChild(log.firstChild); // 限长，避免无限增长
+    log.scrollTop = log.scrollHeight;
   };
 
   App.showCoachTip = function () {
@@ -820,6 +944,17 @@
       if (g.match.pendingRoundEnd) { App.showRoundResult(); return; } // 轮满 → 轮次结算
       var meM = g.seats[g.playerIndex];
       if (meM.chips <= 0) App.log('你已被淘汰，接下来以旁观视角继续比赛。', 'hl');
+      // 重入：人类筹码归零且赛制允许 → 浮出「重入」按钮（AI 已在后台自动重入）
+      var reBtn = el('btnReentry');
+      if (reBtn) {
+        if (g.match.pendingReentry && g.match.pendingReentry[g.playerIndex]) {
+          reBtn.classList.remove('hidden');
+          reBtn.onclick = function () { App.doReentry(); };
+          App.log('你在可重入窗口内筹码归零，可点击「重入」以起始筹码继续比赛。', 'hl');
+        } else {
+          reBtn.classList.add('hidden');
+        }
+      }
       el('btnNext').textContent = '下一手';
       el('btnNext').onclick = function () { App.nextHand(); };
       el('btnNext').classList.remove('hidden');
@@ -885,6 +1020,23 @@
     if (!ok) { App.showFinal(); return; }
     App.syncHeader();
     App.nextHand();
+  };
+
+  /** 人类重入：把筹码重置为起始筹码，留在比赛里 */
+  App.doReentry = function () {
+    var g = App.game;
+    if (!g || !g.match) return;
+    var ok = g.reenter(g.playerIndex);
+    var reBtn = el('btnReentry');
+    if (reBtn) reBtn.classList.add('hidden');
+    if (!ok) { App.toast('当前不可重入（已过窗口或次数用尽）'); return; }
+    App.toast('已重入，筹码重置为 ' + (g.match.startStack || g.initialChips));
+    App.syncHeader();
+    App.render();
+    // 重入后立刻开下一手
+    el('btnNext').textContent = '下一手';
+    el('btnNext').onclick = function () { App.nextHand(); };
+    el('btnNext').classList.remove('hidden');
   };
 
   /** 最终排名弹窗 */

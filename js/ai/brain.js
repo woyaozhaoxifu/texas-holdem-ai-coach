@@ -162,8 +162,8 @@
       } catch (eIc) { /* ICM 不可用则忽略 */ }
     }
 
-    function mk(action, raiseTo, amount, equity, reason) {
-      return { action: action, raiseTo: raiseTo || 0, amount: amount || 0, reason: reason || '', equity: equity };
+    function mk(action, raiseTo, amount, equity, reason, talk) {
+      return { action: action, raiseTo: raiseTo || 0, amount: amount || 0, reason: reason || '', equity: equity, talk: talk || undefined };
     }
 
     function raiseSize(kind) {
@@ -198,16 +198,18 @@
       return Math.max(target, minTo);
     }
 
-    function mkRaise(kind, reason) {
+    function mkRaise(kind, reason, talk) {
+      // 诈唬类加注默认挂 'bluff' 牌桌对话标记；偷盲/反偷通过 talk='steal' 覆盖
+      var t = talk || (kind === 'bluff' ? 'bluff' : undefined);
       var target = raiseSize(kind);
       var total = (seat.bet || 0) + chips;
-      if (target >= total) return mk('allin', total, chips, 0, reason + '（全下）');
+      if (target >= total) return mk('allin', total, chips, 0, reason + '（全下）', t);
       if (facingBet && target < (table.currentBet || 0) + (table.minRaise || 20)) {
         target = (table.currentBet || 0) + (table.minRaise || 20);
       }
       var cost = target - (seat.bet || 0);
-      if (cost >= chips) return mk('allin', (seat.bet || 0) + chips, chips, 0, reason + '（全下）');
-      return mk('raise', target, cost, 0, reason);
+      if (cost >= chips) return mk('allin', (seat.bet || 0) + chips, chips, 0, reason + '（全下）', t);
+      return mk('raise', target, cost, 0, reason, t);
     }
 
     // =========================================================
@@ -224,7 +226,11 @@
       if (toCall === 0) needTop *= 1.5;
       else if ((seat.bet || 0) >= (table.bigBlind || 20) && toCall <= (table.bigBlind || 20)) needTop *= 1.25;
       // 面对加注 → 收紧范围（foldToAggression 高的收得更紧）
-      if (raiseCount >= 2) needTop *= (1 - 0.30 * clamp(1 - p.foldToAggression, 0, 1));
+      // A4 短桌（有效对手 ≤2）：被加注吓跑的概率降低，更愿 defend，避免一手手交盲注
+      if (raiseCount >= 2) {
+        var ftaShort = (nOpp <= 2) ? 0.8 : 1.0;
+        needTop *= (1 - 0.30 * clamp(1 - p.foldToAggression, 0, 1) * ftaShort);
+      }
       if (raiseCount >= 3) needTop *= 0.65;
       // 残局（≤3 人有效对手）：短桌 3-bet 泛滥、成本相对高，被 3-bet 后别那么容易被吓跑（否则每手收盲无人看翻牌）
       if (nOpp <= 2 && raiseCount >= 2) needTop *= (1 + 0.16 * Math.min(2, raiseCount - 1));
@@ -288,13 +294,13 @@
       }
 
       // ---- 反偷：对手在后位偷盲，我用 3-bet 反击 ----
-      if (resteal && canRaise && topPct < 0.88 && rnd() < p.restealFreq * (1 + moodTilt * 0.5)) {
+      if (resteal && canRaise && topPct < 0.88 && rnd() < p.restealFreq * (1 + moodTilt * 0.5) * ((nOpp <= 2) ? 1.25 : 1)) {
         var rw = p.id === 'lag' ? '想偷我的盲？反加！'
           : p.id === 'boss' ? '你在偷盲，我读到了——反加。'
             : p.id === 'solver' ? '你的偷盲范围太宽，3-bet 惩罚。'
               : p.id === 'rock' ? '（皱眉）这手我不能再让了。'
                 : '反加注，不能让你白拿盲注。';
-        return mkRaise('bluff', rw);
+        return mkRaise('bluff', rw, 'steal');
       }
 
       // ---- 偷盲：前位都弃牌，我在后位开火 ----
@@ -305,6 +311,8 @@
           if (bossRead.tight) { stealRange += 0.12; stealNow = Math.min(0.95, stealNow * 1.2); } // 对手太紧→偷盲范围放宽
           else if (bossRead.loose) { stealRange -= 0.10; stealNow = Math.max(0.01, stealNow * 0.85); } // 对手很松→少偷等价值
         }
+        // A4 短桌（有效对手 ≤2）：开池/偷盲范围更宽、触发概率更高（对手少、偷池更易成）
+        if (nOpp <= 2) { stealRange = Math.min(0.95, stealRange + 0.06); stealNow = Math.min(0.98, stealNow * 1.25); }
         if (topPct <= stealRange && rnd() < stealNow * (1 + moodConf * 0.4)) {
           var sw = bossRead && bossRead.tight ? '他太紧，偷他没商量。'
             : bossRead && bossRead.loose ? '他很松，少偷，等价值再上。'
@@ -314,7 +322,7 @@
                     : p.id === 'tag' ? '后位偷盲，标准操作。'
                       : p.id === 'rock' ? '位置好，这手可以偷。'
                         : '加注试试……';
-          return mkRaise('bluff', sw);
+          return mkRaise('bluff', sw, 'steal');
         }
       }
 
@@ -405,6 +413,11 @@
     callThreshold = clamp(callThreshold + catchBonus + moodTilt * 0.35 + grudgeBonus, 0.6, 2.4);
     // 记恨也会让人更想反打回去
     bluffFreq = clamp(bluffFreq + moodTilt * 0.32 + moodConf * 0.12 + grudge * 0.22 + bully * 0.25, 0.01, 0.85);
+    // A5 诈唬频率纹理 / 人数 / 河牌修正：湿面易被成牌跟注 → 少诈；多人底池诈唬性价比低 → 按人数递减；河牌被抓代价大 → 略收
+    if (texWet) bluffFreq *= 0.85;
+    if (nOpp >= 2) bluffFreq *= Math.pow(0.8, nOpp - 1);
+    if (street === 'river') bluffFreq *= 0.90;
+    bluffFreq = clamp(bluffFreq, 0.01, 0.85);
     var stealBoost = (!facingBet && nOpp <= 2) ? 1.45 : 1.0;
 
     // B1 Boss：读「活人」客观历史后微调诈唬频率（幅度克制 ≤1.2；仅 boss 消费，rock/fish/solver 不启用）
@@ -611,12 +624,12 @@
   function flavor(seat, p, reason) {
     var mood = seat.mood || 0;
     var am = Math.abs(mood);
-    if (am < 30 || !p.moodLines) return reason;
+    if (am < 30 || !p.moodLines) return { text: reason, mood: 0 };
     var lines = mood > 0 ? p.moodLines.happy : p.moodLines.tilt;
-    if (!lines || !lines.length) return reason;
+    if (!lines || !lines.length) return { text: reason, mood: 0 };
     var chance = (am - 30) / 100;   // 30分→0%，100分→70%
-    if (rnd() < chance) return lines[Math.floor(rnd() * lines.length)];
-    return reason;
+    if (rnd() < chance) return { text: lines[Math.floor(rnd() * lines.length)], mood: mood > 0 ? 1 : -1 };
+    return { text: reason, mood: 0 };
   }
 
   /**
@@ -625,7 +638,7 @@
   function rivalFlavor(ctx, r) {
     var seat = ctx.seat;
     var ag = ctx.table && ctx.table.aggressorId;
-    if (!ag || !seat.relations) return r.reason;
+    if (!ag || !seat.relations) return { text: r.reason, rival: false };
     var rel = seat.relations[ag] || 0;
     var p = seat.personality;
     if (rel <= -25 && (r.action === 'call' || r.action === 'raise' || r.action === 'allin') && rnd() < 0.45) {
@@ -634,22 +647,30 @@
         '上次那手我记着，跟到底。',
         '你偷我的，我得拿回来。'
       ];
-      if (p && p.id === 'solver') return '对你，我的跟注范围要放宽。';
-      if (p && p.id === 'rock') return '（盯着你）这手我不让了。';
-      return lines[Math.floor(rnd() * lines.length)];
+      if (p && p.id === 'solver') return { text: '对你，我的跟注范围要放宽。', rival: true };
+      if (p && p.id === 'rock') return { text: '（盯着你）这手我不让了。', rival: true };
+      return { text: lines[Math.floor(rnd() * lines.length)], rival: true };
     }
     if (rel >= 25 && (r.action === 'raise' || r.action === 'allin') && rnd() < 0.35) {
-      return '你前几次都弃了，这次也一样吧？';
+      return { text: '你前几次都弃了，这次也一样吧？', rival: true };
     }
-    return r.reason;
+    return { text: r.reason, rival: false };
   }
 
   /** 对外主入口：决策 + 情绪台词包装 */
   function decide(ctx) {
     var r = decideCore(ctx);
     if (ctx.seat && ctx.seat.personality) {
-      r.reason = flavor(ctx.seat, ctx.seat.personality, r.reason);
-      r.reason = rivalFlavor(ctx, r);
+      var fRes = flavor(ctx.seat, ctx.seat.personality, r.reason);
+      r.reason = fRes.text;
+      var rRes = rivalFlavor(ctx, r);
+      r.reason = rRes.text;
+      // 牌桌对话标记：把有「人格味道」的决策标注出来，供 game.js emit('tableTalk') 渲染到牌桌对话面板
+      var kind = null;
+      if (rRes.rival) kind = 'rival';
+      else if (fRes.mood) kind = (ctx.seat.mood > 0 ? 'happy' : 'tilt');
+      else if (r.talk) kind = r.talk;   // bluff / steal 已在 decideCore 的 mkRaise 标注
+      if (kind) r.talk = kind;
       if (ctx.seat._icmUsed && (r.action === 'fold' || r.action === 'check')) {
         r.reason = (r.reason || '') + '（ICM 保护名次，不拿锦标赛生命冒险）';
       }

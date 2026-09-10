@@ -54,10 +54,11 @@ const server = http.createServer((req, res) => {
         transform: getComputedStyle(ta).transform
       };
     });
-    ok(r.scale > 0 && r.scale <= 1, `${w}x${h} scale=${r.scale}（0<scale<=1）`);
-    ok(r.tableW <= r.hostW + 2, `${w}x${h} 牌桌宽 ${r.tableW} ≤ 容器 ${r.hostW}（横向不裁切）`);
-    ok(r.tableH <= r.hostH + 2, `${w}x${h} 牌桌高 ${r.tableH} ≤ 容器 ${r.hostH}（纵向不裁切）`);
-    ok(/matrix/.test(r.transform), `${w}x${h} transform 已生效（${r.transform.slice(0, 28)}…）`);
+    ok(r.tableW >= r.hostW - 2, `${w}x${h} 牌桌宽 ${r.tableW} 铺满容器 ${r.hostW}（满屏自适应）`);
+    ok(r.tableH >= r.hostH - 2, `${w}x${h} 牌桌高 ${r.tableH} 铺满容器 ${r.hostH}（满屏自适应）`);
+    ok(r.tableRight <= r.hostW + 2 && r.tableBottom <= r.hostH + 2, `${w}x${h} 牌桌不超出容器（right=${r.tableRight}/bottom=${r.tableBottom}）`);
+    ok(!/matrix/.test(r.transform) || r.transform === 'none', `${w}x${h} 满屏模式 transform 不再等比缩放（${r.transform}）`);
+    ok(r.bodyOverflowX <= 0, `${w}x${h} 无横向溢出（${r.bodyOverflowX}）`);
     await page.close();
   }
 

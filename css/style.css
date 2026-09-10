@@ -151,28 +151,24 @@ body {
 .scale-host {
   flex: 1;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: stretch;
+  align-items: stretch;
   min-height: 0;
   overflow: hidden;
 }
-/* 缩放容器：宽高 = 基础画布 × 当前缩放系数，让 .table-area 用 transform
-   放在其内部（绝对定位左上）即可避免父级 overflow:hidden 裁剪底部 */
+/* 满屏自适应：缩放容器直接铺满 scale-host（不再用基础画布 × 缩放系数） */
 .table-area-wrap {
   position: relative;
-  width: calc(var(--table-base-w) * var(--table-scale));
-  height: calc(var(--table-base-h) * var(--table-scale));
+  width: 100%;
+  height: 100%;
   flex-shrink: 0;
 }
-/* 固定画布：以 --table-base 为基准尺寸，整体 transform scale 自适应窗口 */
+/* 牌桌主体：直接占满父容器，按窗口自适应铺开（不再做 transform scale） */
 .table-area {
-  position: absolute;
-  top: 0; left: 0;
-  width: var(--table-base-w);
-  height: var(--table-base-h);
-  transform: scale(var(--table-scale));
-  transform-origin: top left;
-  transition: transform .12s ease-out;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform: none;
   display: flex;
   min-height: 0;
 }
@@ -227,7 +223,7 @@ body {
 
 /* ===== 座位（玻璃拟态）===== */
 .seat {
-  position: relative; width: 190px;
+  position: relative; flex: 1 1 160px; max-width: 260px; min-width: 150px; width: auto;
   background: linear-gradient(180deg, rgba(20,30,46,.9), rgba(12,20,32,.93));
   border: 1px solid rgba(120,180,210,.16); border-radius: 14px;
   padding: 6px 10px 8px;
@@ -534,7 +530,7 @@ body {
 
 /* ===== 日志 ===== */
 .log-panel {
-  width: 340px;
+  width: min(340px, 30%);
   background: linear-gradient(180deg, #10182a, #0c1424);
   display: flex; flex-direction: column; flex-shrink: 0;
   border-left: 1px solid var(--line);
@@ -823,6 +819,23 @@ body {
   white-space: nowrap;
 }
 .round-chip .rc-pts { color: #fff; margin-left: 6px; }
+/* 距升级盲注倒计时药丸 */
+.blind-next {
+  display: inline-flex; align-items: center;
+  background: linear-gradient(180deg, rgba(120,170,255,.16), rgba(120,170,255,.06));
+  border: 1px solid rgba(120,170,255,.42);
+  color: #acd0ff; font-weight: 700;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; margin: 0 10px; white-space: nowrap;
+  letter-spacing: .3px;
+}
+.setup-structure { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; }
+.setup-structure select {
+  background: rgba(20,30,48,.7); color: #e7eefb; border: 1px solid #2c3d52;
+  border-radius: 6px; padding: 3px 8px; font-size: 13px;
+}
+.struct-hint { color: var(--muted); font-size: 12.5px; margin-left: 4px; max-width: 360px; }
+.setup-structure select:focus { outline: none; border-color: var(--gold); }
 .setup-actions { display: flex; align-items: center; gap: 10px; }
 .setup-actions .btn { min-width: 0; }
 
@@ -949,9 +962,8 @@ body {
 .aiv-row .rs { color: var(--muted); font-size: 12px; }
 
 /* ============================================================
-   窄屏：桌面区改用等比缩放（见 .scale-host / .table-area），
-   不再在此改变 table-area / felt / log-panel 布局（会与缩放冲突）。
-   仅保留弹窗与网格在窄屏的单列全宽规则（弹窗在缩放区域外）。
+   窄屏：牌桌已改为 100% 铺满窗口（见 .scale-host / .table-area），
+   不再做等比缩放。仅保留弹窗与网格在窄屏的单列全宽规则。
    ============================================================ */
 @media (max-width: 820px) {
   .modal { padding: 12px; }
@@ -967,4 +979,60 @@ body {
 @media (max-height: 700px) {
   .felt { overflow: auto; }
 }
+
+/* ================= 牌桌对话面板（tableTalk）================= */
+.table-talk {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  width: 264px;
+  max-height: 232px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(18, 22, 32, 0.93);
+  border: 1px solid #2c3346;
+  border-radius: 10px;
+  color: #d7dbe6;
+  font-size: 12px;
+  line-height: 1.5;
+  z-index: 60;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.table-talk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  border-bottom: 1px solid #2c3346;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.table-talk-toggle {
+  cursor: pointer;
+  padding: 0 4px;
+  color: #8b93a7;
+  user-select: none;
+}
+.table-talk-toggle:hover { color: #d7dbe6; }
+.table-talk-log {
+  overflow-y: auto;
+  max-height: 190px;
+  padding: 5px 10px;
+}
+.table-talk.collapsed .table-talk-log { display: none; }
+.table-talk-line {
+  padding: 2px 0;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.06);
+  word-break: break-word;
+}
+.table-talk-line:last-child { border-bottom: none; }
+.tt-bluff { color: #ff9a3c; }
+.tt-badbeat { color: #ff5a5a; }
+.tt-steal { color: #4aa3ff; }
+.tt-reentry { color: #c07cff; }
+.tt-generic { color: #aab0c0; }
+.tt-rival { color: #ffd24a; }      /* 记仇/针对：金黄 */
+.tt-happy { color: #6fe39a; }      /* 得意上头：绿 */
+.tt-tilt { color: #ff7a7a; }       /* 崩盘上头：红 */
 

@@ -25,6 +25,7 @@
   var uniq = new Int32Array(7);
   var flushR = new Int32Array(7);
   var rset = new Int32Array(15);
+  var _s5 = new Int32Array(5); // value5Fast 排序用复用缓冲（零分配）
 
   var POW16 = [65536, 4096, 256, 16, 1];
 
@@ -110,6 +111,84 @@
     return packValue(0, [uniq[0], uniq[1], uniq[2], uniq[3], uniq[4]]);
   }
 
+  // ================= 5 牌 O(1) 查表（Cactus-Kev 风格组合编码）=================
+  // 任意 5 张牌的打包值仅由「秩多重集 + 是否同花」唯一决定：
+  //   - 把 5 张的秩(2..14→0..12)升序排列，用组合编号系统映射到 [0, C(17,5)-1]
+  //     comboIndex = C(r0,1) + C(r1+1,2) + C(r2+2,3) + C(r3+3,4) + C(r4+4,5)
+  //   - 同花用偏移 8192 区分；总索引 < 8192 + 6188 = 14380 < 32768。
+  // 每种(秩多重集, 同花)的代表手调用原 value5 预计算，故与 value5 位级一致。
+  function _comb(n, k) {
+    if (k < 0 || n < k) return 0;
+    if (k === 0) return 1;
+    if (k === 1) return n;
+    if (k === 2) return (n * (n - 1)) / 2;
+    if (k === 3) return (n * (n - 1) * (n - 2)) / 6;
+    if (k === 4) return (n * (n - 1) * (n - 2) * (n - 3)) / 24;
+    if (k === 5) return (n * (n - 1) * (n - 2) * (n - 3) * (n - 4)) / 120;
+    return 0;
+  }
+
+  // 表：FIVE_TABLE[index] = 该 5 牌组合的打包值
+  var FIVE_TABLE = new Int32Array(32768);
+  (function buildFiveTable() {
+    var suitsNF = [0, 1, 2, 3, 0];   // 非同花代表手的花色分配
+    var suitsF = [0, 0, 0, 0, 0];     // 同花代表手（仅当 5 秩互异时有效）
+    var cards = [0, 0, 0, 0, 0];
+    var cardsF = [0, 0, 0, 0, 0];
+    var r0, r1, r2, r3, r4, ci;
+    for (r0 = 0; r0 <= 12; r0++) {
+      for (r1 = r0; r1 <= 12; r1++) {
+        for (r2 = r1; r2 <= 12; r2++) {
+          for (r3 = r2; r3 <= 12; r3++) {
+            for (r4 = r3; r4 <= 12; r4++) {
+              ci = _comb(r0, 1) + _comb(r1 + 1, 2) + _comb(r2 + 2, 3) + _comb(r3 + 3, 4) + _comb(r4 + 4, 5);
+              cards[0] = r0 * 4 + suitsNF[0];
+              cards[1] = r1 * 4 + suitsNF[1];
+              cards[2] = r2 * 4 + suitsNF[2];
+              cards[3] = r3 * 4 + suitsNF[3];
+              cards[4] = r4 * 4 + suitsNF[4];
+              FIVE_TABLE[ci] = value5(cards);
+              // 同花表项仅在 5 秩互异（真正可能是同花）时有效填充；否则不会被查表命中
+              if (r0 < r1 && r1 < r2 && r2 < r3 && r3 < r4) {
+                cardsF[0] = r0 * 4 + suitsF[0];
+                cardsF[1] = r1 * 4 + suitsF[1];
+                cardsF[2] = r2 * 4 + suitsF[2];
+                cardsF[3] = r3 * 4 + suitsF[3];
+                cardsF[4] = r4 * 4 + suitsF[4];
+                FIVE_TABLE[8192 + ci] = value5(cardsF);
+              }
+            }
+          }
+        }
+      }
+    }
+  })();
+
+  /**
+   * 恰好 5 张（整数编码）的 O(1) 查表评估，返回打包值。与 value5 位级等价。
+   * @param {Array<number>} a 5 个整数编码牌
+   * @return {number}
+   */
+  function value5Fast(a) {
+    // 提取秩(2..14)并升序排序（复用模块缓冲，零分配）
+    _s5[0] = (a[0] >> 2) + 2;
+    _s5[1] = (a[1] >> 2) + 2;
+    _s5[2] = (a[2] >> 2) + 2;
+    _s5[3] = (a[3] >> 2) + 2;
+    _s5[4] = (a[4] >> 2) + 2;
+    var t, x, y;
+    for (x = 1; x < 5; x++) {
+      t = _s5[x]; y = x - 1;
+      while (y >= 0 && _s5[y] > t) { _s5[y + 1] = _s5[y]; y--; }
+      _s5[y + 1] = t;
+    }
+    var isFlush = ((a[0] & 3) === (a[1] & 3) && (a[1] & 3) === (a[2] & 3) &&
+      (a[2] & 3) === (a[3] & 3) && (a[3] & 3) === (a[4] & 3));
+    var ci = _comb(_s5[0] - 2, 1) + _comb(_s5[1] - 1, 2) + _comb(_s5[2], 3) +
+      _comb(_s5[3] + 1, 4) + _comb(_s5[4] + 2, 5);
+    return FIVE_TABLE[(isFlush ? 8192 : 0) + ci];
+  }
+
   /** 恰好 7 张（整数编码）的评估，返回打包值 */
   function value7(a) {
     var i, r, s, c;
@@ -168,7 +247,8 @@
     }
     if (p1 && p2) {
       var tk = 0;
-      for (r = 14; r >= 2; r--) if (cnt[r] === 1) { tk = r; break; }
+      // 踢脚 = 除两对外的「最高牌」。7 张时可能出现第三对(其秩高于单张)，应作为踢脚。
+      for (r = 14; r >= 2; r--) if (cnt[r] > 0 && r !== p1 && r !== p2) { tk = r; break; }
       return packValue(2, [p1, p2, tk, 0, 0]);
     }
     if (p1) {
@@ -185,7 +265,7 @@
     for (var skip = 0; skip < 6; skip++) {
       var five = [];
       for (var i = 0; i < 6; i++) if (i !== skip) five.push(a[i]);
-      var v = value5(five);
+      var v = value5Fast(five);
       if (v > best) best = v;
     }
     return best;
@@ -316,6 +396,9 @@
     evaluate: evaluate,
     evaluateIdx: evaluateIdx,
     valueIdx: valueIdx,
+    value5: value5,
+    value5Fast: value5Fast,
+    FIVE_TABLE: FIVE_TABLE,
     unpack: unpack,
     packValue: packValue,
     idxOf: idxOf,

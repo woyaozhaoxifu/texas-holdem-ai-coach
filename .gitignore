@@ -9,6 +9,9 @@ tests/_bak*/
 tests/_tmp_*.js
 tests/_peek*.txt
 
+# 根目录临时输出（测试/探查产物，与 tests/_*.txt 同理）
+/_*.txt
+
 # 编辑器与系统
 .DS_Store
 Thumbs.db

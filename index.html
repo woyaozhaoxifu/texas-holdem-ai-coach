@@ -13,7 +13,7 @@
 
 <header class="topbar" data-page-node-id="yJCQDlKScivPHgKFplYlQq">
   <div class="brand" data-page-node-id="sudxZCb3DPzBtPdKXmAZNZ">德州扑克 AI 对战<span class="sub" data-page-node-id="trKAEpDFz9wCkEMKqyG3Wc">教学 · 复盘</span></div>
-  <div class="hand-info" data-page-node-id="BR4bh8UA305RUAs07ZILK3"><span id="roundTag" class="round-chip hidden" data-page-node-id="rt1"></span><span>第 <b id="handNo" data-page-node-id="Uox4NkeXnmookYF6ACZcOH">0</b> 手</span>　盲注 <b id="blinds" data-page-node-id="mlhzceMH8vMfIZZdXqKlJx">10 / 20</b>　你的筹码 <b id="myChips" data-page-node-id="C8CmvK6kGKQCAt9UthhWcz">2000</b></div>
+  <div class="hand-info" data-page-node-id="BR4bh8UA305RUAs07ZILK3"><span id="roundTag" class="round-chip hidden" data-page-node-id="rt1"></span><span>第 <b id="handNo" data-page-node-id="Uox4NkeXnmookYF6ACZcOH">0</b> 手</span>　盲注 <b id="blinds" data-page-node-id="mlhzceMH8vMfIZZdXqKlJx">10 / 20</b><span id="blindNext" class="blind-next hidden"></span>　你的筹码 <b id="myChips" data-page-node-id="C8CmvK6kGKQCAt9UthhWcz">2000</b></div>
   <div class="top-actions" data-page-node-id="RoscmftCEZMgbkT6KK70Re">
     <label class="switch" data-page-node-id="cpXbnVO4k9guXpLsTxxuhC"><input type="checkbox" id="chkCoach" checked data-page-node-id="vrZDFStGuK4G3u7BrsApCn"> 教学提示</label>
     <label class="switch"><input type="checkbox" id="chkSound" checked> 🔔 音效</label>
@@ -24,6 +24,7 @@
     <button class="btn ghost" id="btnStats" data-page-node-id="pC3VIaY8AQrFB3YUHFeE9O">统计</button>
     <button class="btn ghost" id="btnSession" title="本局战绩小结 · 可复制/导出">战绩</button>
     <button class="btn ghost hidden" id="btnReveal" title="匿名桌：揭晓对手真实身份（不可逆）">🔍 揭晓身份</button>
+    <button class="btn primary hidden" id="btnReentry" title="重入：筹码重置为起始筹码，继续本场比赛">🔄 重入</button>
   </div>
 </header>
 
@@ -103,6 +104,14 @@
     <div class="pers-grid" id="persGrid" data-page-node-id="fAdHtBTKCZBelXqPCNOiiW"></div>
     <div class="modal-foot" data-page-node-id="z5TmoO5dCTwkFnFGnbXv8e">
       <span id="setupHint" data-page-node-id="qtNpes8thN3NkF87HcXoCl">已选 0 / 5</span>
+      <label class="switch setup-structure" title="比赛赛制：盲注升级速度 / 起始筹码 / 进圈人数 / 是否可重入">
+        赛制
+        <select id="selStructure">
+          <option value="fast" selected>快节奏 · 标准赛</option>
+          <option value="kpc">KPC 深筹 · 慢升盲</option>
+        </select>
+      </label>
+      <span id="structHint" class="struct-hint"></span>
       <span class="setup-actions" data-page-node-id="sa1">
         <button class="btn ghost" id="btnStartTable" data-page-node-id="5KcKR6NAJwu3fJerFBALYX">练习（无限手）</button>
         <button class="btn primary" id="btnStartMatch" data-page-node-id="sm1">🏆 比赛 · 每轮 15 手</button>
@@ -203,9 +212,14 @@
 <script src="js/handEval.js"></script>
 <script src="js/equity.js"></script>
 <script src="js/icm.js"></script>
-<script src="js/ai/personalities.js"></script>
-<script src="js/ai/brain.js"></script>
-<script src="js/game.js"></script>
+<script src="js/structure.js"></script>
+  <script src="js/ai/personalities.js"></script>
+  <script src="js/ai/brain.js"></script>
+  <script src="js/ai/rng.js"></script>
+  <script src="js/ai/mood.js"></script>
+  <script src="js/ai/relations.js"></script>
+  <script src="js/ai/drift.js"></script>
+  <script src="js/game.js"></script>
 <script src="js/coach.js"></script>
 <script src="js/review.js"></script>
 <script src="js/ui.js"></script>

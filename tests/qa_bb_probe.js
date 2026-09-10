@@ -220,9 +220,27 @@ log('== B1 手末统计不变量（真实 90 手 6 人桌无补筹）==');
   ok(anyV, '确有统计被累计');
   var snap = g.seats.map(function (s) { var o = {}; for (var k in s.stats) o[k] = s.stats[k]; return o; });
   playHand(g);
-  var dOk = true;
-  g.seats.forEach(function (s, i) { for (var k in s.stats) { var inc = s.stats[k] - (snap[i][k] || 0); if (inc < 0 || inc > 1) { dOk = false; log('    seat ' + s.id + ' ' + k + ' 增量=' + inc); } } });
-  ok(dOk, '额外一手：seat.stats 每项单手增量 ∈[0,1]（每手一次口径）');
+  // 口径说明（见 game.js act() 内注释）：
+  //  - 「每手一次」口径（手末 updateSeatStats 统一结算）：
+  //    hands / vpip / pfr / threeBet / steal / cBetFaced / foldToCBet / showdowns / wins
+  //    → 单手增量必须 ∈[0,1]
+  //  - 「逐次动作」口径（Boss 读人用，act() 内每次动作累加）：
+  //    calls / raises / folds / facedBet / foldsToBet
+  //    → 一手含 4 个下注轮，同一座位可合法多次跟注/加注，增量 >1 是正常的
+  var PER_HAND = ['hands', 'vpip', 'pfr', 'threeBet', 'steal', 'cBetFaced', 'foldToCBet', 'showdowns', 'wins'];
+  var dOk = true, actOk = true;
+  g.seats.forEach(function (s, i) {
+    for (var k in s.stats) {
+      var inc = s.stats[k] - (snap[i][k] || 0);
+      if (PER_HAND.indexOf(k) >= 0) {
+        if (inc < 0 || inc > 1) { dOk = false; log('    seat ' + s.id + ' ' + k + ' 每手增量=' + inc + '（应 ∈[0,1]）'); }
+      } else if (inc < 0 || inc > 12) {
+        actOk = false; log('    seat ' + s.id + ' ' + k + ' 动作增量=' + inc + '（超合理上界）');
+      }
+    }
+  });
+  ok(dOk, '额外一手：每手一次口径统计（vpip/pfr/threeBet/steal/showdowns/wins…）单手增量 ∈[0,1]');
+  ok(actOk, '额外一手：逐次动作口径统计（calls/raises/folds/facedBet/foldsToBet）非负且有界');
   var g2 = new Game({ seats: buildSeats(['fish', 'rock', 'tag', 'lag', 'solver', 'boss'], 50000), smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: 50000 });
   var zero = true;
   g2.seats.forEach(function (s) { for (var k in s.stats) if (s.stats[k] !== 0) zero = false; });

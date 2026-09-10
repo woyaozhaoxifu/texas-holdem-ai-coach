@@ -28,6 +28,75 @@
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+  // =========================================================
+  // 性能优化开关（默认全开；可关回原始算法做对照 / 等价验证）
+  //   PERF_BUFFER：复用模块级缓冲，避免每次蒙特卡洛重新分配
+  //   PERF_CACHE ：handStrength 结果 LRU 缓存（仅默认随机源路径）
+  // 缓冲复用不改变任何计算顺序，故与分配版「位级等价」。
+  // =========================================================
+  var PERF_BUFFER = true;
+  var PERF_CACHE = true;
+  var CACHE_CAP = 512;
+  function setPerf(opts) {
+    if (!opts) return;
+    if (typeof opts.buffer === 'boolean') PERF_BUFFER = opts.buffer;
+    if (typeof opts.cache === 'boolean') PERF_CACHE = opts.cache;
+    if (opts.cacheCap) CACHE_CAP = opts.cacheCap;
+  }
+  function clearCache() { _cache = {}; _cacheKeys = []; }
+
+  // 模块级可复用缓冲（buffer 模式）
+  var _bufUsed = new Uint8Array(52);
+  var _bufDeck = new Array(52);
+  var _bufFull = new Array(5);
+  var _bufSeven = new Array(7);
+  var _bufOpp = new Array(8);
+
+  // LRU 缓存：plain object + recency 顺序数组（cap 小，indexOf 足够）
+  var _cache = {};
+  var _cacheKeys = [];
+  function _cacheGet(key) {
+    if (!_cache.hasOwnProperty(key)) return null;
+    var idx = _cacheKeys.indexOf(key);
+    if (idx > 0) { _cacheKeys.splice(idx, 1); _cacheKeys.unshift(key); }
+    return _cache[key];
+  }
+  function _cachePut(key, val) {
+    if (_cache.hasOwnProperty(key)) return;
+    _cache[key] = val;
+    _cacheKeys.unshift(key);
+    if (_cacheKeys.length > CACHE_CAP) {
+      var old = _cacheKeys.pop();
+      if (old != null) delete _cache[old];
+    }
+  }
+  function _hsKey(hole, board, nOpp, iters) {
+    var HEv = Poker.HandEval || HE;
+    // 缓存键按档位归一：不同 AI 人格传入的 equitySamples(200/300/400…) 若落入同一档，
+    // 则共享缓存条目，避免相同 (hole,board,nOpp) 因采样数不同被碎片化。
+    // 注意：实际计算仍使用真实 iters，仅缓存键被粗化（胜率为估计值，可接受）。
+    var bIt = _bucketIters(iters);
+    var parts = [];
+    var i;
+    for (i = 0; i < (hole ? hole.length : 0); i++) parts.push(hole[i].r + ':' + hole[i].s);
+    for (i = 0; i < (board ? board.length : 0); i++) parts.push(board[i].r + ':' + board[i].s);
+    parts.push('#' + nOpp + ':' + bIt);
+    return parts.join(',');
+  }
+
+  /** 把采样数归一到最近的档位，减少 LRU 缓存碎片化 */
+  function _bucketIters(iters) {
+    var buckets = [150, 200, 250, 300, 400, 600];
+    var v = iters || 0;
+    var best = buckets[0];
+    var bd = Math.abs(v - buckets[0]);
+    for (var i = 1; i < buckets.length; i++) {
+      var d = Math.abs(v - buckets[i]);
+      if (d < bd) { bd = d; best = buckets[i]; }
+    }
+    return best;
+  }
+
   /**
    * Chen 起手牌评分。
    * @param {Array<{r:number,s:number}>} hole 两张底牌
@@ -110,26 +179,35 @@
     var HEv = Poker.HandEval || HE;
     var valueIdx = HEv.valueIdx;
 
-    var used = new Uint8Array(52);
+    var used, deck, full, seven, oppVals, deckLen;
+    if (PERF_BUFFER) {
+      used = _bufUsed; used.fill(0);
+      deck = _bufDeck;
+      full = _bufFull;
+      seven = _bufSeven;
+      oppVals = _bufOpp;
+    } else {
+      used = new Uint8Array(52);
+      deck = [];
+      full = new Array(5);
+      seven = new Array(7);
+      oppVals = new Array(nOpp);
+    }
     var i;
     for (i = 0; i < holeIdx.length; i++) used[holeIdx[i]] = 1;
     for (i = 0; i < boardIdx.length; i++) used[boardIdx[i]] = 1;
-
-    var deck = [];
-    for (i = 0; i < 52; i++) if (!used[i]) deck.push(i);
+    deckLen = 0;
+    for (i = 0; i < 52; i++) if (!used[i]) deck[deckLen++] = i;
 
     var needBoard = 5 - boardIdx.length;
     var need = needBoard + 2 * nOpp;
-    var full = new Array(5);
-    var seven = new Array(7);
-    var oppVals = new Array(nOpp);
 
     var wins = 0, ties = 0, shareSum = 0;
 
     for (var it = 0; it < iters; it++) {
       // 部分 Fisher-Yates：只打乱前 need 张
       for (i = 0; i < need; i++) {
-        var j = i + Math.floor(rand() * (deck.length - i));
+        var j = i + Math.floor(rand() * (deckLen - i));
         var t = deck[i]; deck[i] = deck[j]; deck[j] = t;
       }
       for (i = 0; i < boardIdx.length; i++) full[i] = boardIdx[i];
@@ -277,7 +355,17 @@
    */
   function handStrength(hole, board, numOpponents, iterations, rng) {
     if (!board || board.length === 0) return preflopEquity(hole, numOpponents);
-    var r = winRate(hole, board, numOpponents, iterations || 300, rng);
+    var iters = iterations || 300;
+    // 缓存：仅默认随机源（无 rng 注入）走 LRU；注入了 rng 的调用保持原行为（确定性 / 可复现）
+    if (PERF_CACHE && !rng) {
+      var key = _hsKey(hole, board, numOpponents, iters);
+      var cached = _cacheGet(key);
+      if (cached != null) return cached;
+      var r0 = winRate(hole, board, numOpponents, iters, rng);
+      _cachePut(key, r0.equity);
+      return r0.equity;
+    }
+    var r = winRate(hole, board, numOpponents, iters, rng);
     return r.equity;
   }
 
@@ -571,6 +659,71 @@
     return c >= 4;
   }
 
+  // ============ 蒙特卡洛后台线程（Web Worker 卸载，主线程同步回退）============
+  // computeAsync 把重计算(handStrength / oddsPanel) 交给 js/equity.worker.js，
+  // 返回 Promise；若浏览器不支持 Worker 或创建/导入失败（file:// 常被安全策略拦截），
+  // 自动回退到同步函数，保证 UI 永远可用。
+  var _asyncWorker = null;
+  var _asyncBroken = false;
+  var _asyncId = 0;
+
+  function _syncCompute(type, payload) {
+    if (type === 'handStrength') {
+      return handStrength(payload.hole, payload.board, payload.numOpponents, payload.iterations, payload.rng);
+    }
+    if (type === 'oddsPanel') {
+      return oddsPanel(payload.hole, payload.board, payload.numOpponents, payload.iterations, payload.rng);
+    }
+    return null;
+  }
+
+  /**
+   * 异步计算（后台线程优先，失败回退同步）。
+   * @param {Object} opt {type:'handStrength'|'oddsPanel', payload:{hole,board,numOpponents,iterations,rng?}, workerUrl?}
+   * @return {Promise<Object>}
+   */
+  function computeAsync(opt) {
+    opt = opt || {};
+    var type = opt.type || 'handStrength';
+    var payload = opt.payload || {};
+    return new Promise(function (resolve) {
+      // 无 Worker（如 Node 测试 / 老浏览器）→ 同步回退
+      if (typeof Worker === 'undefined') {
+        resolve(_syncCompute(type, payload));
+        return;
+      }
+      try {
+        if (!_asyncWorker && !_asyncBroken) {
+          var url = opt.workerUrl || 'js/equity.worker.js';
+          var w = new Worker(url);
+          w._pending = {};
+          w.onmessage = function (ev) {
+            var m = ev.data || {};
+            if (m.id != null && w._pending[m.id]) {
+              var cb = w._pending[m.id];
+              delete w._pending[m.id];
+              cb(m);
+            }
+          };
+          w.onerror = function () { _asyncBroken = true; w._pending = {}; };
+          _asyncWorker = w;
+        }
+        if (_asyncBroken || !_asyncWorker) {
+          resolve(_syncCompute(type, payload));
+          return;
+        }
+        var id = ++_asyncId;
+        _asyncWorker._pending[id] = function (m) {
+          if (m.error) resolve(_syncCompute(type, payload)); // Worker 计算出错 → 同步兜底
+          else resolve(m.result);
+        };
+        _asyncWorker.postMessage({ type: type, id: id, payload: payload });
+      } catch (e) {
+        resolve(_syncCompute(type, payload));
+      }
+    });
+  }
+
   var Equity = {
     CHEN_BASE: CHEN_BASE,
     chenScore: chenScore,
@@ -584,7 +737,10 @@
     outsToEquity: outsToEquity,
     describeHole: describeHole,
     oddsPanel: oddsPanel,
-    boardTexture: boardTexture
+    boardTexture: boardTexture,
+    setPerf: setPerf,
+    clearCache: clearCache,
+    computeAsync: computeAsync
   };
 
   Poker.Equity = Equity;

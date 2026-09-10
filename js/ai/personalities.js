@@ -86,7 +86,7 @@
       moodLines: { tilt: ['又输了……再来再来！', '我就不信了，跟！'], happy: ['哈哈我赢了！', '这把运气好！'], calm: ['嗯……跟吧。'] },
       callStation: 0.92,
       pushBB: 6,
-      drift: 0.30,
+      drift: 0.18,
       betSizing: { value: 0.45, bluff: 0.35, polarize: 0 }
     },
     {
@@ -119,6 +119,7 @@
       moodLines: { tilt: ['（皱眉）这牌也能反超？', '不打了不打了……'], happy: ['（满意地点头）', '这就是等待的价值。'], calm: ['按牌打，不冒险。'] },
       callStation: 0.08,
       pushBB: 16,
+      drift: 0.06,
       betSizing: { value: 0.75, bluff: 0.5, polarize: 0.15 }
     },
     {
@@ -151,6 +152,7 @@
       moodLines: { tilt: ['刚才那手我打得不对……稳住。', '运气有点差。'], happy: ['节奏不错，继续保持。', '就该怎么打。'], calm: ['按位置来。'] },
       callStation: 0.22,
       pushBB: 12,
+      drift: 0.14,
       betSizing: { value: 0.66, bluff: 0.55, polarize: 0.35 }
     },
     {
@@ -183,7 +185,7 @@
       moodLines: { tilt: ['再来！我就不信压不死你！', '气死我了，加注！'], happy: ['哈哈，你们都太怂了！', '继续开火！'], calm: ['机会来了，打。'] },
       callStation: 0.18,
       pushBB: 18,
-      drift: 0.22,
+      drift: 0.16,
       betSizing: { value: 0.80, bluff: 0.72, polarize: 0.55 }
     },
     {
@@ -216,6 +218,7 @@
       moodLines: { tilt: ['数据上这是正常波动。', '不影响期望值。'], happy: ['执行正确。', '正 EV 决策。'], calm: ['按范围处理。'] },
       callStation: 0.05,
       pushBB: 10,
+      drift: 0.08,
       betSizing: { value: 0.72, bluff: 0.62, polarize: 0.85 }
     },
     {
@@ -248,6 +251,7 @@
       moodLines: { tilt: ['有意思，你在针对我？', '记下了。'], happy: ['你的一举一动我都记着。', '如我所料。'], calm: ['让我看看你会怎么做。'] },
       callStation: 0.05,
       pushBB: 12,
+      drift: 0.12,
       betSizing: { value: 0.78, bluff: 0.66, polarize: 0.9 }
     }
   ];

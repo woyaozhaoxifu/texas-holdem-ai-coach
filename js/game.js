@@ -16,38 +16,18 @@
     try { return typeof require !== 'undefined' ? require(p) : null; } catch (e) { return null; }
   }
 
-  /**
-   * 独立 PRNG（mulberry32）。
-   * 漂移刻意**不**消费 this.rng —— 那会挪动洗牌随机流、让所有既有种子回放
-   * 测试的牌面全部改变。漂移用自己的流，一手开始前调用次数只取决于手数，
-   * 因此仍然完全可复现，同时不碰牌局本身的确定性。
-   */
-  function makeRng(seed) {
-    var a = (typeof seed === 'number' && isFinite(seed)) ? (seed | 0) : 20250821;
-    if (a === 0) a = 20250821;
-    return function () {
-      a = (a + 0x6D2B79F5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
+  // 共享模块（UMD：浏览器用 window.Poker.*，Node 用 require 回退）。
+  // makeRng 已抽到 js/ai/rng.js，避免 drift.js 与 game.js 循环依赖；
+  // Mood / Relations / Drift 为本次抽出的人格情绪 / 关系 / 策略漂移系统。
+  var Mood = Poker.Mood || treq('./ai/mood.js');
+  var Relations = Poker.Relations || treq('./ai/relations.js');
+  var Drift = Poker.Drift || treq('./ai/drift.js');
 
-  /** 漂移流的默认种子。config.driftSeed 可覆盖；config.drift=false 或环境变量
-   *  POKER_NO_DRIFT=1 可整桌关闭漂移（QA 做「漂移前/后」对照时会用到）。 */
-  var DEFAULT_DRIFT_SEED = 20250821;
-
-  /** 环境变量逃生开关：浏览器下 process 不存在，静默返回 false */
-  function driftEnvOff() {
-    try {
-      if (typeof process !== 'undefined' && process.env && process.env.POKER_NO_DRIFT === '1') return true;
-    } catch (e) { /* ignore */ }
-    return false;
-  }
   var Cards = Poker.Cards || treq('./cards.js');
   var HandEval = Poker.HandEval || treq('./handEval.js');
   var Equity = Poker.Equity || treq('./equity.js');
   var Personalities = Poker.Personalities || treq('./ai/personalities.js');
+  var Structures = Poker.Structures || treq('./structure.js');
 
   var STREETS = ['preflop', 'flop', 'turn', 'river'];
   var STREET_CN = { preflop: '翻牌前', flop: '翻牌', turn: '转牌', river: '河牌' };
@@ -58,9 +38,13 @@
     this.bigBlind = this.config.bigBlind || 20;
     this.initialChips = this.config.initialChips || 1000;
     this.rng = this.config.rng || Math.random;
-    this.driftEnabled = this.config.drift !== false && !driftEnvOff();
-    this.driftSeed = typeof this.config.driftSeed === 'number' ? this.config.driftSeed : DEFAULT_DRIFT_SEED;
-    this.driftRng = makeRng(this.driftSeed);
+    // 策略漂移流：抽到 Drift.setup（内部用独立 PRNG，不碰牌局主 rng）。
+    var driftState = (Drift && typeof Drift.setup === 'function')
+      ? Drift.setup(this.config)
+      : { enabled: this.config.drift !== false, seed: 20250821, rng: null };
+    this.driftEnabled = driftState.enabled;
+    this.driftSeed = driftState.seed;
+    this.driftRng = driftState.rng;
 
     this.seats = [];
     var defs = this.config.seats || [];
@@ -137,10 +121,15 @@
         var ante = (lv.ante != null) ? lv.ante : (idx >= 5 ? Math.ceil((lv.bb || 20) * 0.10 / 5) * 5 : 0);
         return { sb: lv.sb, bb: lv.bb, ante: ante };
       };
-      var rawLevels = (mOpt.blindLevels && mOpt.blindLevels.length) ? mOpt.blindLevels
-        : [{ sb: 10, bb: 20 }, { sb: 15, bb: 30 }, { sb: 25, bb: 50 }, { sb: 40, bb: 80 },
-           { sb: 60, bb: 120 }, { sb: 100, bb: 200 }, { sb: 150, bb: 300 }, { sb: 250, bb: 500 },
-           { sb: 400, bb: 800 }, { sb: 600, bb: 1200 }];
+      // 赛制结构（单一数据源 js/structure.js）：未显式指定时用内置结构表
+      var st = (Structures && Structures.get) ? Structures.get(mOpt.structure) : null;
+      if (!st) {
+        st = { id: 'fast', startStack: 2000, handsPerLevel: 15, payoutPct: 0.5,
+          allowReentry: false, reentryUntilLevel: 0, reentryMax: 0, awardRule: [5, 3, 1],
+          levels: [{ sb: 10, bb: 20, ante: 0 }] };
+      }
+      // 显式传入的 blindLevels 仍优先（老调用方/测试大量使用），缺 ante 时走上面的归一化
+      var rawLevels = (mOpt.blindLevels && mOpt.blindLevels.length) ? mOpt.blindLevels : st.levels;
       var levels = [];
       for (var li = 0; li < rawLevels.length; li++) levels.push(normLv(rawLevels[li], li));
       var lv0 = levels[0] || { sb: 10, bb: 20, ante: 0 };
@@ -150,8 +139,18 @@
       this.config.autoRebuy = false;   // 比赛永不补筹
       var m = {
         enabled: true,
-        roundHands: mOpt.roundHands || 15,
+        roundHands: mOpt.roundHands || st.handsPerLevel,
         blindLevels: levels,
+        // ---- 赛制结构（来自 js/structure.js）----
+        structureId: st.id,
+        startStack: st.startStack,
+        allowReentry: (mOpt.allowReentry != null) ? !!mOpt.allowReentry : !!st.allowReentry,
+        reentryUntilLevel: (mOpt.reentryUntilLevel != null) ? mOpt.reentryUntilLevel : (st.reentryUntilLevel || 0),
+        reentryMax: (mOpt.reentryMax != null) ? mOpt.reentryMax : (st.reentryMax || 0),
+        reentryCount: [],         // 每个座位已重入次数
+        inMoney: (Structures && Structures.inMoneyCount) ? Structures.inMoneyCount(st, this.seats.length) : 3, // 进圈人数
+        isBubble: false,          // 泡沫期：存活人数 == 进圈人数 + 1
+        pendingReentry: {},       // 待玩家确认重入（仅人类；放弃则在下一手开局前判淘汰）
         payouts: (mOpt.payouts && mOpt.payouts.length) ? mOpt.payouts.slice() : null, // B2 奖金结构（如 [50,30,20]）；null=不启用 ICM
         roundNo: 1,
         handsInRound: 0,
@@ -172,6 +171,7 @@
         m.roundPts[mi] = 0;
         m.bustRound[mi] = 0;
         m.eliminated[mi] = false;
+        m.reentryCount[mi] = 0;
       }
       this.match = m;
     }
@@ -248,7 +248,7 @@
       // 兜底：从外部绕过构造函数塞进来的座位，第一次把当前人格认作锚点
       if (!s.basePersonality) s.basePersonality = s.personality;
       if (!this.driftEnabled) continue;
-      var next = Personalities.derive(s.basePersonality, this.driftRng);
+      var next = Drift.derive(s.basePersonality, this.driftRng);
       if (next && next.id === s.basePersonality.id) s.personality = next;
     }
   };
@@ -287,22 +287,8 @@
       s._trap = false;
       s._trapDone = false;
       s._allinStreet = '';
-      // 关系随时间淡忘
-      for (var rid in s.relations) {
-        if (!Object.prototype.hasOwnProperty.call(s.relations, rid)) continue;
-        var rv = Math.round(s.relations[rid] * 0.97);
-        if (Math.abs(rv) < 5) delete s.relations[rid];
-        else s.relations[rid] = rv;
-      }
-      // 情绪随时间回归平静
-      if (s.mood) {
-        s.mood = Math.round(s.mood * 0.82);
-        // 极端情绪会随时间平复，避免永久上头
-        if (s.mood < -40) s.mood += 7;
-        else if (s.mood > 40) s.mood -= 5;
-        if (Math.abs(s.mood) < 3) s.mood = 0;
-        s.moodLabel = Personalities.moodLabel(s.mood);
-      }
+      // 情绪随时间回归平静（抽到 Mood.decay）
+      Mood.decay(s);
       var rebuy = this.config.autoRebuy !== false;
       if (s.chips <= 0) {
         // AI 破产自动补充筹码，保持牌桌满员（人类玩家破产 = 游戏结束）
@@ -315,6 +301,9 @@
         s.folded = false; s.sittingOut = false; s.stats.hands++;
       } else { s.folded = false; s.sittingOut = false; s.stats.hands++; }
     }
+
+    // 关系随时间淡忘（抽到 Relations.decay，整桌一次性衰减，等价于原每座位内循环）
+    Relations.decay(this.seats);
 
     // ---- 策略漂移：AI 不严格执行单一策略，围绕基准小幅摆动 ----
     // 必须在任何发牌 / 读决策之前执行，否则本手会用到上一手的人格。
@@ -911,7 +900,15 @@
         }
         var wasAggr = !!last2 && (last2.action === 'raise' || last2.action === 'allin');
         if (s.committed > 0 || win > 0) {
-          this.updateMood(s, delta, ev2 ? ev2.rank : -1, wasAggr, win > 0);
+          Mood.applyHandResult(s, {
+            won: win > 0,
+            wasAggressor: wasAggr,
+            handRank: ev2 ? ev2.rank : -1,
+            delta: delta,
+            vol: s.personality ? (s.personality.moodVolatility || 0.3) : 0.3,
+            bigBlind: this.bigBlind,
+            emit: this.emit.bind(this)
+          });
         }
       }
       if (win > 0) {
@@ -990,6 +987,67 @@
     return n;
   };
 
+  /** 当前盲注级别（从 1 起；非比赛模式恒为 1） */
+  Game.prototype.currentLevel = function () {
+    if (!this.match || !this.match.enabled) return 1;
+    return this.match.roundNo || 1;
+  };
+
+  /** 该座位现在还能不能重入（级别未过截止线 + 重入次数未用完 + 赛制允许） */
+  Game.prototype.canReenter = function (seatIndex) {
+    var m = this.match, s = this.seats[seatIndex];
+    if (!m || !m.enabled || !s) return false;
+    if (!m.allowReentry) return false;
+    if (this.currentLevel() > (m.reentryUntilLevel || 0)) return false;
+    if ((m.reentryCount[seatIndex] || 0) >= (m.reentryMax || 0)) return false;
+    return true;
+  };
+
+  /** 执行重入：筹码重置为起始筹码，重入次数 +1（本轮积分不变） */
+  Game.prototype.reenter = function (seatIndex) {
+    var m = this.match, s = this.seats[seatIndex];
+    if (!this.canReenter(seatIndex)) return false;
+    s.chips = m.startStack || this.initialChips;
+    s.sittingOut = false;
+    s.folded = false;
+    s.eliminated = false;
+    s.bet = 0;
+    s.committed = 0;
+    m.reentryCount[seatIndex] = (m.reentryCount[seatIndex] || 0) + 1;
+    if (m.pendingReentry) delete m.pendingReentry[seatIndex];
+    this.emit('reenter', {
+      seat: seatIndex, name: s.name, level: this.currentLevel(),
+      count: m.reentryCount[seatIndex], chips: s.chips
+    });
+    // AI 重入也冒一句，让牌桌对话更鲜活
+    if (!s.isHuman && typeof this.emit === 'function') {
+      this.emit('tableTalk', {
+        seatIndex: seatIndex, name: s.name,
+        text: '筹码归零又如何？满血复活，再来！', kind: 'reentry'
+      });
+    }
+    this.refreshBubble();
+    return true;
+  };
+
+  /** 放弃重入（或超期未确认）→ 走正常淘汰 */
+  Game.prototype.declineReentry = function (seatIndex) {
+    var m = this.match;
+    if (!m || !m.enabled) return false;
+    if (!m.pendingReentry || !m.pendingReentry[seatIndex]) return false;
+    delete m.pendingReentry[seatIndex];
+    return this.eliminateSeat(seatIndex);
+  };
+
+  /** 刷新泡沫期：存活人数 == 进圈人数 + 1 */
+  Game.prototype.refreshBubble = function () {
+    var m = this.match;
+    if (!m || !m.enabled) return false;
+    var inMoney = m.inMoney || 0;
+    m.isBubble = (inMoney > 0 && this.aliveCount() === inMoney + 1);
+    return m.isBubble;
+  };
+
   /** 把某座位标记为淘汰（幂等）。真实对局在结算时自动调用；也可供测试/管理调用。 */
   Game.prototype.eliminateSeat = function (seatIndex) {
     var m = this.match, s = this.seats[seatIndex];
@@ -1012,8 +1070,22 @@
     if (!m || !m.enabled || m.over) return;
     for (var i = 0; i < this.seats.length; i++) {
       var s = this.seats[i];
-      if (!m.eliminated[i] && s.chips <= 0) this.eliminateSeat(i);
+      if (m.eliminated[i] || s.chips > 0) continue;
+      // 重入：AI 自动重入；人类交给 UI 的「重入」按钮确认（逾期未确认 → 下一手开局前判淘汰）
+      if (this.canReenter(i)) {
+        if (s.isHuman) {
+          s.sittingOut = true;
+          s.folded = true;
+          m.pendingReentry[i] = true;
+          this.emit('reentryOffer', { seat: i, name: s.name, level: this.currentLevel() });
+          continue;
+        }
+        this.reenter(i);
+        continue;
+      }
+      this.eliminateSeat(i);
     }
+    this.refreshBubble();
     m.handsInRound++;
     if (this.aliveCount() <= 1) this.finishRound(true);
     else if (m.handsInRound >= m.roundHands) this.finishRound(false);
@@ -1042,10 +1114,15 @@
       if (!a.eliminated) return (b.chips - a.chips) || (a.seatIndex - b.seatIndex);
       return b.bustOrder - a.bustOrder;                                  // 越晚出局排越高
     });
+    // 名次积分：由赛制结构的 awardRule 按进圈人数截断生成（fast 3 人 → [5,3,1]）
     var award = [5, 3, 1];
+    if (Structures && Structures.awardFor && m && m.structureId) {
+      var aw = Structures.awardFor(Structures.get(m.structureId), this.seats.length);
+      if (aw && aw.length) award = aw;
+    }
     for (var k = 0; k < arr.length; k++) {
       arr[k].rank = k + 1;
-      if (!arr[k].eliminated && k < 3) arr[k].roundPts = award[k];
+      if (!arr[k].eliminated && k < award.length) arr[k].roundPts = award[k];
       arr[k].totalPts = (arr[k].totalPts || 0) + arr[k].roundPts;
       m.points[arr[k].seatIndex] = arr[k].totalPts;
       m.roundPts[arr[k].seatIndex] = arr[k].roundPts;
@@ -1125,6 +1202,7 @@
     this.bigBlind = lv.bb;
     this.ante = lv.ante || 0;
     for (var i = 0; i < this.seats.length; i++) m.roundStartChips[i] = this.seats[i].chips;
+    this.refreshBubble();
     this.emit('roundStart', { roundNo: m.roundNo, sb: this.smallBlind, bb: this.bigBlind, ante: this.ante });
     return true;
   };
@@ -1163,19 +1241,19 @@
         }
         if (!relDelta) continue;
         var w = 0.5 + vol * 0.7;
-        s.relations[wseat.id] = clampRel((s.relations[wseat.id] || 0) + relDelta * w);
+        Relations.update(s, wseat, relDelta * w);
 
         // 被偷的一方：当场发火（影响后续打法）
         if (bluffed && !iWon) {
           s.mood = Math.max(-100, Math.round((s.mood || 0) - 16 * (0.4 + vol)));
-          s.moodLabel = Personalities.moodLabel(s.mood);
+          s.moodLabel = Mood.label(s.mood);
           s.moodEvent = '被' + wseat.name + '偷了一把，记下了';
           this.emit('mood', { seat: s.index, name: s.name, mood: s.mood, label: s.moodLabel, event: s.moodEvent });
         }
         // 偷成功的赢家：觉得对方好欺负
         if (bluffed && wseat.personality) {
           var wv = wseat.personality.moodVolatility || 0.3;
-          wseat.relations[s.id] = clampRel((wseat.relations[s.id] || 0) + 13 * (0.5 + wv * 0.7));
+          Relations.update(wseat, s, 13 * (0.5 + wv * 0.7));
         }
       }
     }
@@ -1195,42 +1273,6 @@
     if (v >= 25) return '好欺负';
     return '';
   }
-
-  function clampRel(v) { return Math.max(-100, Math.min(100, Math.round(v))); }
-
-  /**
-   * 情绪更新：输赢、bad beat、诈唬成败都会影响 AI 心态，
-   * 进而通过 brain.js 改变其打法（上头 → 变松、更多诈唬）。
-   */
-  Game.prototype.updateMood = function (seat, delta, handRank, wasAggressor, won) {
-    var vol = seat.personality ? (seat.personality.moodVolatility || 0.3) : 0.3;
-    var before = seat.mood || 0;
-    var ev = '';
-    // 盲注级别的正常损耗不值得动情绪，只有真正的输赢大池才影响心态
-    if (Math.abs(delta) <= this.bigBlind * 3) {
-      seat.mood = Math.round((seat.mood || 0) * 0.9);
-      seat.moodLabel = Personalities.moodLabel(seat.mood);
-      return;
-    }
-    if (delta > 0) {
-      seat.mood += (12 + Math.min(32, delta / 15)) * (0.4 + vol);
-      if (won && wasAggressor && handRank >= 0 && handRank <= 1) { seat.mood += 14 * vol; ev = '偷鸡得手，飘了'; }
-      else if (won && handRank >= 6) { seat.mood += 9 * vol; ev = '大牌收池，心情不错'; }
-      if (!ev && delta > this.bigBlind * 8) ev = '赢下大池，士气大振';
-    } else if (delta < 0) {
-      seat.mood -= (12 + Math.min(32, -delta / 15)) * (0.4 + vol);
-      if (handRank >= 5 && !won) { seat.mood -= 22 * vol; ev = '被 bad beat，心态炸了'; }
-      else if (wasAggressor && handRank >= 0 && handRank <= 1) { seat.mood -= 11 * vol; ev = '诈唬被抓，恼火'; }
-      else if (seat.consecutiveLosses >= 3) { seat.mood -= 12 * vol; ev = '连败不止，越打越急'; }
-      if (!ev && -delta > this.bigBlind * 8) ev = '输掉大池，陷入低谷';
-    }
-    seat.mood = Math.max(-100, Math.min(100, Math.round(seat.mood)));
-    seat.moodLabel = Personalities.moodLabel(seat.mood);
-    // 只在情绪状态发生跨越时记录事件（供 UI 冒泡显示）
-    if (ev && Personalities.moodLabel(before) !== seat.moodLabel) seat.moodEvent = ev;
-    else if (!ev) seat.moodEvent = '';
-    if (ev) this.emit('mood', { seat: seat.index, name: seat.name, mood: seat.mood, label: seat.moodLabel, event: ev });
-  };
 
   // ============ 给 Brain 的上下文 ============
   Game.prototype.buildCtx = function (seatIndex) {
@@ -1271,7 +1313,13 @@
         stacks.push(this.seats[i2b].chips);
       }
       var mePos = liveIdx.indexOf(seatIndex);
-      icmCtx = { payouts: m.payouts.slice(0, stacks.length), stacks: stacks, meIndex: Math.max(0, mePos) };
+      icmCtx = {
+        payouts: m.payouts.slice(0, stacks.length),
+        stacks: stacks,
+        meIndex: Math.max(0, mePos),
+        bubble: !!m.isBubble,        // 泡沫期：存活 == 进圈+1，ICM 压力自然放大
+        inMoney: m.inMoney || 0
+      };
     }
     return {
       seat: s,
@@ -1305,7 +1353,18 @@
   Game.prototype.aiDecide = function (seatIndex) {
     var Brain = Poker.Brain || treq('./ai/brain.js');
     if (!Brain) return { action: 'check', raiseTo: 0, amount: 0, reason: '' };
-    return Brain.decide(this.buildCtx(seatIndex));
+    var r = Brain.decide(this.buildCtx(seatIndex));
+    // 牌桌对话：把带「人格味道」的 AI 决策（记仇/诈唬/偷盲/上头）广播到对话面板
+    if (r && r.talk && typeof this.emit === 'function') {
+      var seat = this.seats[seatIndex];
+      this.emit('tableTalk', {
+        seatIndex: seatIndex,
+        name: seat ? seat.name : '',
+        text: r.reason || '',
+        kind: r.talk
+      });
+    }
+    return r;
   };
 
   Game.STREETS = STREETS;
