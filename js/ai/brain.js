@@ -624,11 +624,15 @@
   function flavor(seat, p, reason) {
     var mood = seat.mood || 0;
     var am = Math.abs(mood);
-    if (am < 30 || !p.moodLines) return { text: reason, mood: 0 };
+    if (am < 20 || !p.moodLines) return { text: reason, mood: 0 };
     var lines = mood > 0 ? p.moodLines.happy : p.moodLines.tilt;
     if (!lines || !lines.length) return { text: reason, mood: 0 };
-    var chance = (am - 30) / 100;   // 30分→0%，100分→70%
-    if (rnd() < chance) return { text: lines[Math.floor(rnd() * lines.length)], mood: mood > 0 ? 1 : -1 };
+    var chance = (am - 20) / 70;   // 20分→0%，50分→43%，100分→100%
+    if (rnd() < chance) {
+      var line = lines[Math.floor(rnd() * lines.length)];
+      // 情绪台词「追加」在策略理由之后，而不是整体替换——避免偷盲/诈唬等策略信息被吞掉
+      return { text: (reason ? reason + '；' : '') + line, mood: mood > 0 ? 1 : -1 };
+    }
     return { text: reason, mood: 0 };
   }
 
@@ -666,6 +670,9 @@
       var rRes = rivalFlavor(ctx, r);
       r.reason = rRes.text;
       // 牌桌对话标记：把有「人格味道」的决策标注出来，供 game.js emit('tableTalk') 渲染到牌桌对话面板
+      // ⚠️ 优先级：对手针对性(rival) > 情绪(happy/tilt) > 策略标签(bluff/steal)
+      //   —— 情绪优先于策略标签（让上头/得意的情绪化发言主导牌桌对话面板）；
+      //      策略信息不丢失：情绪台词已「追加」进 r.reason 文本，偷盲/诈唬等理由仍可见。
       var kind = null;
       if (rRes.rival) kind = 'rival';
       else if (fRes.mood) kind = (ctx.seat.mood > 0 ? 'happy' : 'tilt');

@@ -72,16 +72,17 @@
     var ev = '';
 
     // 盲注级别的正常损耗不值得动情绪，只有真正的输赢大池才影响心态
-    if (Math.abs(ctx.delta) <= bigBlind * 3) {
+    // （阈值 3BB → 2BB：德州绝大多数手牌都是小池，放宽后小输小赢也会带来心态波动）
+    if (Math.abs(ctx.delta) <= bigBlind * 2) {
       seat.mood = Math.round((seat.mood || 0) * 0.9);
       seat.moodLabel = label(seat.mood);
       return;
     }
 
     if (ctx.delta > 0) {
-      seat.mood += (12 + Math.min(32, ctx.delta / 15)) * (0.4 + vol);
-      if (ctx.won && ctx.wasAggressor && ctx.handRank >= 0 && ctx.handRank <= 1) { seat.mood += 14 * vol; ev = '偷鸡得手，飘了'; }
-      else if (ctx.won && ctx.handRank >= 6) { seat.mood += 9 * vol; ev = '大牌收池，心情不错'; }
+      seat.mood += (12 + Math.min(32, ctx.delta / 15)) * (0.4 + vol) * 1.5;
+      if (ctx.won && ctx.wasAggressor && ctx.handRank >= 0 && ctx.handRank <= 1) { seat.mood += 18 * vol; ev = '偷鸡得手，飘了'; }
+      else if (ctx.won && ctx.handRank >= 6) { seat.mood += 12 * vol; ev = '大牌收池，心情不错'; }
       if (!ev && ctx.delta > bigBlind * 8) ev = '赢下大池，士气大振';
     } else if (ctx.delta < 0) {
       seat.mood -= (12 + Math.min(32, -ctx.delta / 15)) * (0.4 + vol);
@@ -109,7 +110,7 @@
    */
   function decay(seat) {
     if (seat.mood) {
-      seat.mood = Math.round(seat.mood * 0.82);
+      seat.mood = Math.round(seat.mood * 0.87);
       // 极端情绪会随时间平复，避免永久上头
       if (seat.mood < -40) seat.mood += 7;
       else if (seat.mood > 40) seat.mood -= 5;
