@@ -240,11 +240,19 @@
     App.log('<span class="hl">' + esc(msg) + '</span>');
   };
 
-  /** 等比缩放：已弃用 —— 牌桌现直接铺满窗口（.table-area 用 100% 自适应）。
-   *  保留函数入口与 resize 监听，避免破坏调用方；不再修改 --table-scale。 */
+  /** 等比缩放：按 scale-host 可用区域，把固定基础画布（1280×1000）整体缩放适配窗口。
+   *  scale = min(可用宽/基础宽, 可用高/基础高)，写入 #scaleHost 的 --table-scale，
+   *  由 CSS 的 transform: scale(var(--table-scale)) 生效。所有子元素随之等比缩放，缩窗不遮挡。 */
   App.syncScale = function () {
-    // 满屏自适应：固定画布不再做 transform scale，故此处为空操作。
-    return;
+    var host = document.getElementById('scaleHost');
+    if (!host) return;
+    var bw = 1280, bh = 1000; // 与 :root --table-base-w/h 保持一致
+    var rect = host.getBoundingClientRect();
+    var vw = rect.width || window.innerWidth;
+    var vh = rect.height || window.innerHeight;
+    var s = Math.min(vw / bw, vh / bh);
+    if (!isFinite(s) || s <= 0) s = 1;
+    host.style.setProperty('--table-scale', s);
   };
 
   /** 把金额贪心拆成各面额筹码。
@@ -805,7 +813,9 @@
       log.className = 'table-talk-log';
       box.appendChild(head);
       box.appendChild(log);
-      document.body.appendChild(box);
+      // 放进缩放后的牌桌内部，随牌桌一起等比缩放（不再用 position:fixed 浮在视口遮挡操作区）
+      var ta = document.querySelector('.table-area');
+      (ta || document.body).appendChild(box);
       App._ttEl = box;
       App._ttLog = log;
     }

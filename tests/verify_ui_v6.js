@@ -30,8 +30,9 @@ const server = http.createServer((req, res) => {
   await new Promise(r => server.listen(PORT, '127.0.0.1', r));
   const browser = await chromium.launch({ headless: true });
 
-  // ---------- A. 等比缩放：多分辨率下不裁切 / 不溢出 ----------
+  // ---------- A. 等比缩放：多分辨率下整体缩放适配、不裁切 / 不溢出 ----------
   L.push('== A 等比缩放（transform scale，多分辨率）==');
+  const baseW = 1280, baseH = 1000;
   const sizes = [[1920, 1080], [1440, 900], [1280, 800], [1024, 700], [900, 620]];
   for (const [w, h] of sizes) {
     const page = await browser.newPage({ viewport: { width: w, height: h } });
@@ -42,7 +43,7 @@ const server = http.createServer((req, res) => {
       const host = document.getElementById('scaleHost');
       const ta = document.querySelector('.table-area');
       const cs = getComputedStyle(host); // --table-scale 设在 #scaleHost 上，不是 :root
-      const scale = parseFloat(cs.getPropertyValue('--table-scale'));
+      const scale = parseFloat(cs.getPropertyValue('--table-scale')) || 1;
       const hb = host.getBoundingClientRect();
       const tb = ta.getBoundingClientRect();
       return {
@@ -55,10 +56,11 @@ const server = http.createServer((req, res) => {
         transform: getComputedStyle(ta).transform
       };
     });
-    ok(r.tableW >= r.hostW - 2, `${w}x${h} 牌桌宽 ${r.tableW} 铺满容器 ${r.hostW}（满屏自适应）`);
-    ok(r.tableH >= r.hostH - 2, `${w}x${h} 牌桌高 ${r.tableH} 铺满容器 ${r.hostH}（满屏自适应）`);
-    ok(r.tableRight <= r.hostRight + 2 && r.tableBottom <= r.hostBottom + 2, `${w}x${h} 牌桌不超出容器（right=${r.tableRight}/bottom=${r.tableBottom}）`);
-    ok(!/matrix/.test(r.transform) || r.transform === 'none', `${w}x${h} 满屏模式 transform 不再等比缩放（${r.transform}）`);
+    const expScale = Math.min(r.hostW / baseW, r.hostH / baseH);
+    ok(Math.abs(r.scale - expScale) < 0.03, `${w}x${h} --table-scale=${r.scale.toFixed(3)} ≈ 预期 ${expScale.toFixed(3)}（按 scale-host 实际可用区计算）`);
+    ok(r.tableW <= r.hostW + 2 && r.tableH <= r.hostH + 2, `${w}x${h} 牌桌整体缩放后不超出容器（w=${r.tableW}/h=${r.tableH}）`);
+    ok(r.tableRight <= r.hostRight + 2 && r.tableBottom <= r.hostBottom + 2, `${w}x${h} 牌桌居中不溢出（right=${r.tableRight}/bottom=${r.tableBottom}）`);
+    ok(/matrix/.test(r.transform), `${w}x${h} transform 等比缩放已启用`);
     ok(r.bodyOverflowX <= 0, `${w}x${h} 无横向溢出（${r.bodyOverflowX}）`);
     await page.close();
   }

@@ -661,6 +661,14 @@
     return { text: r.reason, rival: false };
   }
 
+  /** 通用台词：与人格无关，让每位对手都会在关键动作上冒一句，避免「只有某一人在说话」 */
+  var GENERIC_LINES = {
+    raise: ['这池我加注，跟不跟？', '加注施压，看你怎么应对。', '我加一档，池里热闹点。', '这手我主动出击。', '加注，逼你表态。'],
+    call: ['我跟，看看翻牌。', '这注我接了。', '不弃，先看牌面。', '跟一手，不让你轻易拿下底池。'],
+    fold: ['这手我撤了。', '不太对，弃。', '留得筹码在，先弃为敬。', '这牌面我不恋战。']
+  };
+  function pickLine(arr) { return arr[Math.floor(rnd() * arr.length)]; }
+
   /** 对外主入口：决策 + 情绪台词包装 */
   function decide(ctx) {
     var r = decideCore(ctx);
@@ -670,13 +678,21 @@
       var rRes = rivalFlavor(ctx, r);
       r.reason = rRes.text;
       // 牌桌对话标记：把有「人格味道」的决策标注出来，供 game.js emit('tableTalk') 渲染到牌桌对话面板
-      // ⚠️ 优先级：对手针对性(rival) > 情绪(happy/tilt) > 策略标签(bluff/steal)
-      //   —— 情绪优先于策略标签（让上头/得意的情绪化发言主导牌桌对话面板）；
-      //      策略信息不丢失：情绪台词已「追加」进 r.reason 文本，偷盲/诈唬等理由仍可见。
+      // ⚠️ 优先级：对手针对性(rival) > 情绪(happy/tilt) > 策略标签(bluff/steal) > 通用台词(generic)
       var kind = null;
       if (rRes.rival) kind = 'rival';
       else if (fRes.mood) kind = (ctx.seat.mood > 0 ? 'happy' : 'tilt');
       else if (r.talk) kind = r.talk;   // bluff / steal 已在 decideCore 的 mkRaise 标注
+      // 兜底：任何人（不限于狂暴鲨鱼）在关键动作上都有概率冒一句，让牌桌对话多声部
+      if (!kind) {
+        if (r.action === 'raise' || r.action === 'allin') {
+          if (rnd() < 0.5) { kind = 'generic'; r.reason = pickLine(GENERIC_LINES.raise); }
+        } else if (r.action === 'call') {
+          if (rnd() < 0.32) { kind = 'generic'; r.reason = pickLine(GENERIC_LINES.call); }
+        } else if (r.action === 'fold') {
+          if (rnd() < 0.18) { kind = 'generic'; r.reason = pickLine(GENERIC_LINES.fold); }
+        }
+      }
       if (kind) r.talk = kind;
       if (ctx.seat._icmUsed && (r.action === 'fold' || r.action === 'check')) {
         r.reason = (r.reason || '') + '（ICM 保护名次，不拿锦标赛生命冒险）';

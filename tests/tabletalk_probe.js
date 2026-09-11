@@ -17,7 +17,7 @@ var g = new Game({
   smallBlind: 10, bigBlind: 20, playerIndex: 0, initialChips: 20000, autoRebuy: false, rng: mulberry(2026)
 });
 
-var kinds = { rival: 0, bluff: 0, steal: 0, happy: 0, tilt: 0, other: 0, total: 0 };
+var kinds = { rival: 0, bluff: 0, steal: 0, happy: 0, tilt: 0, generic: 0, other: 0, total: 0 };
 var sampleTexts = [];
 var handsPlayed = 0, decisions = 0, talkDecisions = 0;
 for (var h = 0; h < 400; h++) {
@@ -45,7 +45,7 @@ for (var h = 0; h < 400; h++) {
 console.log('诊断: handsPlayed=' + handsPlayed + ' decisions=' + decisions + ' 决策含talk=' + talkDecisions);
 console.log('=== 牌桌对话事件统计（400 手模拟）===');
 console.log('总事件数: ' + kinds.total);
-console.log('rival(记仇): ' + kinds.rival + '  bluff(诈唬): ' + kinds.bluff + '  steal(偷盲): ' + kinds.steal + '  happy(上头得意): ' + kinds.happy + '  tilt(崩盘上头): ' + kinds.tilt + '  other: ' + kinds.other);
+console.log('rival(记仇): ' + kinds.rival + '  bluff(诈唬): ' + kinds.bluff + '  steal(偷盲): ' + kinds.steal + '  happy(上头得意): ' + kinds.happy + '  tilt(崩盘上头): ' + kinds.tilt + '  generic(通用): ' + kinds.generic + '  other: ' + kinds.other);
 console.log('--- 抽样台词 ---');
 sampleTexts.forEach(function (s) { console.log('  ' + s); });
 console.log(kinds.total > 0 ? 'PASS - tableTalk 事件已正常触发' : 'FAIL - 无 tableTalk 事件');
