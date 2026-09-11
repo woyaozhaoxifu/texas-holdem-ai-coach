@@ -1036,3 +1036,317 @@ body {
 .tt-happy { color: #6fe39a; }      /* 得意上头：绿 */
 .tt-tilt { color: #ff7a7a; }       /* 崩盘上头：红 */
 
+/* ============================================================
+   UI 美化增强 v5：质感、光影、动效微调（2026-09-10）
+   原则：只改视觉，不动布局；所有增强均为 CSS 层叠/伪元素
+   ============================================================ */
+
+/* ---- 1. 全局氛围：深空赌桌环境光 + 细微动态光晕 ---- */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(1800px 1200px at 50% -10%, rgba(88, 166, 255, .10) 0%, transparent 55%),
+    radial-gradient(1200px 800px at 85% 90%, rgba(241, 197, 96, .06) 0%, transparent 50%),
+    radial-gradient(1200px 800px at 15% 90%, rgba(79, 214, 196, .05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+  animation: ambientShift 18s ease-in-out infinite alternate;
+}
+@keyframes ambientShift {
+  0%   { opacity: .85; }
+  100% { opacity: 1; }
+}
+
+/* ---- 2. 顶栏：更强玻璃拟态 + 底部金色微光 ---- */
+.topbar {
+  background:
+    linear-gradient(180deg, rgba(20, 32, 56, .92), rgba(13, 21, 35, .95));
+  backdrop-filter: blur(14px) saturate(1.1);
+  border-bottom: 1px solid rgba(120, 180, 210, .22);
+  box-shadow:
+    0 1px 0 rgba(241, 197, 96, .08) inset,
+    0 4px 24px rgba(0, 0, 0, .45);
+}
+.brand .sub {
+  box-shadow: 0 0 0 1px rgba(241, 197, 96, .15), 0 0 14px rgba(241, 197, 96, .10);
+}
+
+/* ---- 3. 牌桌毛毡：增加细密纹理、边缘光、中央聚光灯 ---- */
+.felt {
+  border-radius: 22px;
+  box-shadow:
+    inset 0 0 160px rgba(0, 0, 0, .60),
+    inset 0 0 4px rgba(140, 220, 240, .25),
+    0 0 0 1px rgba(70, 130, 170, .20),
+    0 0 0 6px rgba(16, 26, 42, .55),
+    0 0 50px rgba(0, 0, 0, .45),
+    0 0 80px rgba(40, 90, 120, .18);
+}
+.felt::before {
+  background:
+    radial-gradient(ellipse 65% 40% at 50% 48%, rgba(255, 255, 255, .07) 0%, transparent 72%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, .015) 0 1.5px, transparent 1.5px 5px),
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .012) 0 1.5px, transparent 1.5px 6px);
+}
+.felt::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 22px;
+  box-shadow: inset 0 0 0 1px rgba(241, 197, 96, .06);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---- 4. 卡牌质感：3D 悬浮、更细腻阴影、金色边缘 ---- */
+.card {
+  border-radius: 9px;
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, .35),
+    0 1px 0 rgba(255, 255, 255, .25) inset,
+    0 -1px 0 rgba(0, 0, 0, .08) inset;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.card.fancy {
+  border-radius: 13px;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, .55),
+    0 2px 0 rgba(255, 255, 255, .35) inset,
+    0 -1px 0 rgba(0, 0, 0, .08) inset;
+  transform-style: preserve-3d;
+}
+.card.fancy:hover,
+.my-hand:hover .mh-cards .card.fancy {
+  transform: translateY(-6px) rotateX(6deg);
+  box-shadow:
+    0 22px 42px rgba(0, 0, 0, .50),
+    0 2px 0 rgba(255, 255, 255, .35) inset,
+    0 0 0 1px rgba(241, 197, 96, .25);
+}
+.board .card {
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, .45),
+    0 1px 0 rgba(255, 255, 255, .28) inset;
+}
+.board .card.empty {
+  border: 2px dashed rgba(140, 210, 230, .18);
+  background: rgba(255, 255, 255, .03);
+}
+
+/* ---- 5. 牌背：真实赌场风格 ---- */
+.hole .card.back,
+.card.small.back {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(120, 180, 210, .12) 0%, transparent 55%),
+    repeating-linear-gradient(135deg, #244a6e 0 5px, #1a3a5a 5px 10px),
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .04) 0 3px, transparent 3px 6px);
+  border: 1px solid rgba(120, 180, 210, .35);
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, .35),
+    0 0 0 2px rgba(10, 18, 30, .55) inset;
+}
+
+/* ---- 6. 座位玻璃面板：主动画光 + 悬停抬升 ---- */
+.seat {
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(24, 36, 54, .92), rgba(14, 22, 36, .95));
+  border: 1px solid rgba(120, 180, 210, .18);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, .40),
+    inset 0 1px 0 rgba(255, 255, 255, .06);
+  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease;
+}
+.seat:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, .45),
+    0 0 0 1px rgba(120, 180, 210, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.seat.active {
+  border-color: rgba(241, 197, 96, .70);
+  box-shadow:
+    0 0 0 2px rgba(241, 197, 96, .28),
+    0 0 36px rgba(241, 197, 96, .22),
+    0 8px 24px rgba(0, 0, 0, .50);
+  animation: seatGlow 2.2s ease-in-out infinite alternate;
+}
+@keyframes seatGlow {
+  0%   { box-shadow: 0 0 0 2px rgba(241, 197, 96, .25), 0 0 28px rgba(241, 197, 96, .18), 0 8px 24px rgba(0, 0, 0, .50); }
+  100% { box-shadow: 0 0 0 3px rgba(241, 197, 96, .38), 0 0 48px rgba(241, 197, 96, .30), 0 8px 24px rgba(0, 0, 0, .50); }
+}
+.seat.winner {
+  border-color: rgba(241, 197, 96, .80);
+  box-shadow: 0 0 0 3px rgba(241, 197, 96, .45), 0 0 48px rgba(241, 197, 96, .40);
+}
+
+/* ---- 7. 玩家操作区：半透玻璃面板聚合（不增加整体尺寸避免布局重叠） ---- */
+.controls {
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.controls .btn {
+  border-radius: 13px;
+  letter-spacing: 2px;
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, .25),
+    inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+.controls .btn:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+
+/* ---- 8. 加注条：更明显的输入框与快捷按钮（保持紧凑） ---- */
+.raise-box {
+  padding: 0;
+}
+.raise-box input[type=number] {
+  width: 130px;
+  background: rgba(6, 12, 22, .90);
+  border: 1px solid rgba(120, 180, 210, .25);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .25);
+}
+.raise-box input[type=number]:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(241, 197, 96, .15), inset 0 2px 6px rgba(0, 0, 0, .25);
+}
+.preset-raise .btn {
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(120, 180, 210, .25);
+}
+.preset-raise .btn:hover:not(:disabled) {
+  background: rgba(241, 197, 96, .12);
+  border-color: rgba(241, 197, 96, .35);
+}
+
+/* ---- 9. 玩家信息条：更圆润、更悬浮 ---- */
+.mh-bar {
+  border-radius: 999px;
+  padding: 8px 28px;
+  background: linear-gradient(180deg, rgba(24, 38, 60, .96), rgba(14, 24, 40, .96));
+  border: 1px solid rgba(120, 180, 210, .28);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, .40),
+    inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+
+/* ---- 10. 底池金额：更醒目但不刺眼 ---- */
+.pot-line b {
+  text-shadow: 0 0 16px rgba(241, 197, 96, .45), 0 0 4px rgba(241, 197, 96, .25);
+}
+
+/* ---- 11. 日志面板：更精致头部 + 行悬停 ---- */
+.log-panel {
+  background: linear-gradient(180deg, rgba(14, 24, 42, .96), rgba(10, 18, 32, .98));
+  border-left: 1px solid rgba(120, 180, 210, .18);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, .25);
+}
+.log-head {
+  background: linear-gradient(180deg, rgba(241, 197, 96, .08), transparent);
+  text-shadow: 0 0 12px rgba(241, 197, 96, .20);
+}
+.log div {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .04);
+  transition: background .12s;
+}
+.log div:hover {
+  background: rgba(255, 255, 255, .03);
+}
+
+/* ---- 12. 弹窗：优雅入场 + 微光边框 ---- */
+.modal-box {
+  border: 1px solid rgba(120, 180, 210, .22);
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, .70),
+    0 0 0 1px rgba(120, 180, 210, .12),
+    0 0 40px rgba(88, 166, 255, .08),
+    inset 0 1px 0 rgba(255, 255, 255, .06);
+  animation: modalIn .28s cubic-bezier(.25, .8, .25, 1);
+}
+@keyframes modalIn {
+  0%   { opacity: 0; transform: translateY(18px) scale(.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-head {
+  background: linear-gradient(180deg, rgba(20, 36, 62, .70), rgba(16, 26, 44, .40));
+}
+
+/* ---- 13. 胜率助手面板：与右侧更一体化 ---- */
+.odds-wrap {
+  border-bottom: 1px solid rgba(120, 180, 210, .18);
+  background: linear-gradient(180deg, rgba(22, 40, 64, .94), rgba(16, 28, 48, .96));
+}
+
+/* ---- 14. 牌桌对话面板：更细腻 ---- */
+.table-talk {
+  border: 1px solid rgba(120, 180, 210, .18);
+  background: rgba(18, 26, 40, .94);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .50);
+  border-radius: 12px;
+}
+.table-talk-head {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .04), transparent);
+  border-bottom: 1px solid rgba(120, 180, 210, .14);
+}
+
+/* ---- 15. 选对手卡片：选中态更豪华 ---- */
+.pers-card.sel {
+  background: linear-gradient(180deg, rgba(70, 54, 28, .80), rgba(44, 34, 18, .85));
+  box-shadow:
+    0 0 0 2px rgba(241, 197, 96, .35),
+    0 0 30px rgba(241, 197, 96, .22),
+    0 8px 24px rgba(0, 0, 0, .35);
+}
+
+/* ---- 16. 按钮通用：触感高光 ---- */
+.btn {
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, .20),
+    inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, .35),
+    0 0 0 1px rgba(120, 180, 210, .12),
+    inset 0 1px 0 rgba(255, 255, 255, .10);
+}
+
+/* ---- 17. 滚动条：更细更暗 ---- */
+::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(60, 84, 112, .80); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(84, 116, 152, .90); }
+
+/* ---- 18. 响应式顶栏：窄屏下自动折行/收缩，避免横向溢出 ---- */
+@media (max-width: 1280px) {
+  .topbar { padding: 8px 14px; gap: 8px; }
+  .top-actions { gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+  .top-actions .btn { padding: 6px 11px; font-size: 13px; }
+  .switch { padding: 4px 9px; font-size: 12px; }
+}
+@media (max-width: 1100px) {
+  .topbar { padding: 8px 12px; gap: 6px; }
+  .brand { font-size: 16px; gap: 6px; }
+  .brand::before { font-size: 18px; }
+  .brand .sub { font-size: 11px; padding: 2px 8px; }
+  .hand-info { font-size: 12px; }
+  .top-actions { gap: 5px; }
+  .top-actions .btn { padding: 6px 10px; font-size: 12px; }
+}
+@media (max-width: 900px) {
+  .topbar { flex-wrap: wrap; min-height: 48px; padding: 7px 10px; gap: 5px; }
+  .hand-info { margin-left: auto; }
+  .top-actions { width: 100%; justify-content: flex-end; }
+  .brand .sub { font-size: 11px; padding: 2px 8px; }
+}
+@media (max-width: 520px) {
+  .topbar { padding: 6px 8px; }
+  .top-actions .btn { padding: 5px 8px; font-size: 11px; }
+  .switch { padding: 3px 7px; font-size: 11px; }
+}
+

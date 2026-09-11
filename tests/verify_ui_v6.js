@@ -48,6 +48,7 @@ const server = http.createServer((req, res) => {
       return {
         scale: scale,
         hostW: Math.round(hb.width), hostH: Math.round(hb.height),
+        hostRight: Math.round(hb.right), hostBottom: Math.round(hb.bottom),
         tableW: Math.round(tb.width), tableH: Math.round(tb.height),
         tableRight: Math.round(tb.right), tableBottom: Math.round(tb.bottom),
         bodyOverflowX: document.body.scrollWidth - window.innerWidth,
@@ -56,7 +57,7 @@ const server = http.createServer((req, res) => {
     });
     ok(r.tableW >= r.hostW - 2, `${w}x${h} 牌桌宽 ${r.tableW} 铺满容器 ${r.hostW}（满屏自适应）`);
     ok(r.tableH >= r.hostH - 2, `${w}x${h} 牌桌高 ${r.tableH} 铺满容器 ${r.hostH}（满屏自适应）`);
-    ok(r.tableRight <= r.hostW + 2 && r.tableBottom <= r.hostH + 2, `${w}x${h} 牌桌不超出容器（right=${r.tableRight}/bottom=${r.tableBottom}）`);
+    ok(r.tableRight <= r.hostRight + 2 && r.tableBottom <= r.hostBottom + 2, `${w}x${h} 牌桌不超出容器（right=${r.tableRight}/bottom=${r.tableBottom}）`);
     ok(!/matrix/.test(r.transform) || r.transform === 'none', `${w}x${h} 满屏模式 transform 不再等比缩放（${r.transform}）`);
     ok(r.bodyOverflowX <= 0, `${w}x${h} 无横向溢出（${r.bodyOverflowX}）`);
     await page.close();
