@@ -1350,3 +1350,96 @@ body::before {
   .switch { padding: 3px 7px; font-size: 11px; }
 }
 
+/* ============================================================
+   真实牌桌质感 v6（2026-09-10）：木质扶手 + 密织毛毡 + 桌面印字 + 立体筹码 + 发牌员按钮
+   原则：纯 CSS 视觉增强，不改 DOM、不动布局盒；box-shadow 环不计入布局盒，
+         不影响 verify_ui_v6 的"牌桌不超出容器"断言。
+   ============================================================ */
+
+/* ---- 1. 木质扶手外框：让 .table-area 暴露出来的留白变成实木边框 ---- */
+.table-area {
+  background:
+    radial-gradient(125% 125% at 50% 50%, transparent 58%, rgba(0,0,0,.38) 100%),
+    repeating-linear-gradient(89deg, rgba(0,0,0,.07) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.015) 0 2px, transparent 2px 14px),
+    linear-gradient(135deg, #6e4527 0%, #4a2c18 38%, #3a2113 64%, #55321a 100%);
+}
+
+/* ---- 2. 毛毡：圆角更大 + 木质扶手环（金镶边→深缝→木纹→高光→外暗线→投影） ---- */
+.felt {
+  border-radius: 26px;
+  box-shadow:
+    inset 0 0 170px rgba(0,0,0,.62),
+    inset 0 0 4px rgba(140,220,240,.22),
+    0 0 0 2px rgba(241,197,96,.22),    /* 金色内嵌镶边 */
+    0 0 0 4px rgba(20,12,6,.92),        /* 深色接缝 */
+    0 0 0 9px rgba(124,76,34,.95),      /* 木质扶手 */
+    0 0 0 10px rgba(255,206,150,.30),   /* 扶手高光边 */
+    0 0 0 12px rgba(18,10,5,.60),       /* 外缘暗线 */
+    0 6px 44px rgba(0,0,0,.50);          /* 桌面投影 */
+}
+
+/* ---- 3. 更密实的毛毡纤维纹理（双向细线 + 斜纹，叠加混合） ---- */
+.felt::before {
+  background:
+    radial-gradient(ellipse 62% 40% at 50% 47%, rgba(255,255,255,.06) 0%, transparent 72%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 2.5px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.022) 0 1px, transparent 1px 2.5px),
+    repeating-linear-gradient(135deg, rgba(0,0,0,.06) 0 1px, transparent 1px 4px);
+  mix-blend-mode: overlay;
+  opacity: .9;
+}
+
+/* ---- 4. 桌面印字：居中椭圆金边徽标（经典赌场牌桌印花，置于内容之下） ---- */
+.felt::after {
+  content: "♠　德州扑克　·　TEXAS HOLD'EM　♥";
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: "Georgia", "Songti SC", "STSong", serif;
+  font-weight: 800; font-size: clamp(14px, 2.4vw, 26px);
+  letter-spacing: 6px; white-space: nowrap;
+  color: rgba(241,197,96,.12);
+  text-shadow: 0 1px 1px rgba(0,0,0,.35);
+  padding: 26px 54px;
+  border: 2px solid rgba(241,197,96,.10);
+  border-radius: 50% / 42%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---- 5. 立体筹码：高光顶边 + 底部暗影 + 外暗线，呈圆柱筹码质感 ---- */
+.chip, .pile-chip {
+  border: 3px dashed rgba(255,255,255,.9);
+  box-shadow:
+    0 4px 9px rgba(0,0,0,.55),
+    inset 0 2px 3px rgba(255,255,255,.55),
+    inset 0 -3px 5px rgba(0,0,0,.45),
+    0 0 0 1px rgba(0,0,0,.35);
+}
+.pile-chip {
+  box-shadow:
+    0 5px 11px rgba(0,0,0,.55),
+    inset 0 2px 3px rgba(255,255,255,.5),
+    inset 0 -3px 5px rgba(0,0,0,.45),
+    0 0 0 1px rgba(0,0,0,.35);
+}
+/* 座位下注徽标里的小筹码也加一点立体感 */
+.seat-bet .chip-icon {
+  border-width: 2px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.4);
+}
+
+/* ---- 6. 发牌员按钮：白色凸面圆片（庄位角色 Puck 改造） ---- */
+.role-puck.r-D {
+  width: 22px; height: 22px; min-width: 22px;
+  padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #f1f1f1 55%, #d4d4d4 100%);
+  color: #b8860b; font-weight: 900; font-size: 12px;
+  border: 1px solid #fff;
+  box-shadow:
+    0 2px 5px rgba(0,0,0,.55),
+    inset 0 1px 2px rgba(255,255,255,.95),
+    inset 0 -2px 3px rgba(0,0,0,.22);
+}
+
